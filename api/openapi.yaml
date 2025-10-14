@@ -1,0 +1,432 @@
+openapi: 3.0.0
+info:
+  title: Notification Service API
+  description: API for managing and sending notifications (Email, SMS, Push)
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@example.com
+
+servers:
+  - url: http://localhost:3003
+    description: Development server
+  - url: http://<your-gcp-vm-ip>:3003
+    description: Production server (GCP)
+
+tags:
+  - name: Notifications
+    description: Notification management endpoints
+  - name: Email
+    description: Email notification endpoints
+  - name: SMS
+    description: SMS notification endpoints
+  - name: Health
+    description: Health check endpoints
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - Health
+      description: Check if the service is running
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+                  service:
+                    type: string
+                    example: notification-service
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/notifications:
+    get:
+      summary: Get all notifications
+      tags:
+        - Notifications
+      description: Retrieve a list of all notifications
+      parameters:
+        - in: query
+          name: userId
+          schema:
+            type: integer
+          description: Filter by user ID
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [email, sms, push]
+          description: Filter by notification type
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, sent, failed, delivered]
+          description: Filter by status
+      responses:
+        '200':
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create a notification
+      tags:
+        - Notifications
+      description: Create and optionally send a notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationCreate'
+      responses:
+        '201':
+          description: Notification created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/notifications/{id}:
+    get:
+      summary: Get notification by ID
+      tags:
+        - Notifications
+      description: Retrieve a specific notification
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notification details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      summary: Update notification
+      tags:
+        - Notifications
+      description: Update a notification (NOT IMPLEMENTED)
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationUpdate'
+      responses:
+        '200':
+          description: Notification updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+    delete:
+      summary: Delete notification
+      tags:
+        - Notifications
+      description: Delete a notification (NOT IMPLEMENTED)
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notification deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Notification deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/notifications/{id}/resend:
+    post:
+      summary: Resend notification
+      tags:
+        - Notifications
+      description: Resend a failed or pending notification (NOT IMPLEMENTED)
+      parameters:
+        - $ref: '#/components/parameters/NotificationId'
+      responses:
+        '200':
+          description: Notification resent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/email/send:
+    post:
+      summary: Send email notification
+      tags:
+        - Email
+      description: Send an email notification directly (NOT IMPLEMENTED)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '200':
+          description: Email sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+  /api/sms/send:
+    post:
+      summary: Send SMS notification
+      tags:
+        - SMS
+      description: Send an SMS notification directly (NOT IMPLEMENTED)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SMSRequest'
+      responses:
+        '200':
+          description: SMS sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '501':
+          $ref: '#/components/responses/NotImplemented'
+
+components:
+  parameters:
+    NotificationId:
+      name: id
+      in: path
+      required: true
+      description: Notification ID
+      schema:
+        type: string
+
+  schemas:
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Notification ID (UUID)
+          example: 123e4567-e89b-12d3-a456-426614174000
+        userId:
+          type: integer
+          description: User ID
+          example: 1
+        type:
+          type: string
+          enum: [email, sms, push]
+          description: Notification type
+          example: email
+        recipient:
+          type: string
+          description: Recipient address (email/phone)
+          example: user@example.com
+        subject:
+          type: string
+          description: Notification subject/title
+          example: Order Confirmation
+        message:
+          type: string
+          description: Notification message content
+          example: Your order has been confirmed
+        status:
+          type: string
+          enum: [pending, sent, failed, delivered]
+          description: Notification status
+          example: sent
+        metadata:
+          type: object
+          description: Additional metadata
+          additionalProperties: true
+        sentAt:
+          type: string
+          format: date-time
+          description: When notification was sent
+        createdAt:
+          type: string
+          format: date-time
+          description: When notification was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: When notification was last updated
+
+    NotificationCreate:
+      type: object
+      required:
+        - userId
+        - type
+        - recipient
+        - message
+      properties:
+        userId:
+          type: integer
+          example: 1
+        type:
+          type: string
+          enum: [email, sms, push]
+          example: email
+        recipient:
+          type: string
+          example: user@example.com
+        subject:
+          type: string
+          example: Welcome!
+        message:
+          type: string
+          example: Welcome to our platform!
+        sendImmediately:
+          type: boolean
+          default: false
+          description: Send notification immediately
+        metadata:
+          type: object
+          additionalProperties: true
+
+    NotificationUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, sent, failed, delivered]
+        message:
+          type: string
+        subject:
+          type: string
+
+    EmailRequest:
+      type: object
+      required:
+        - to
+        - subject
+        - message
+      properties:
+        to:
+          type: string
+          format: email
+          example: user@example.com
+        subject:
+          type: string
+          example: Order Confirmation
+        message:
+          type: string
+          example: Your order has been confirmed
+        userId:
+          type: integer
+          example: 1
+
+    SMSRequest:
+      type: object
+      required:
+        - to
+        - message
+      properties:
+        to:
+          type: string
+          example: +1234567890
+        message:
+          type: string
+          example: Your verification code is 123456
+        userId:
+          type: integer
+          example: 1
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Error message
+        message:
+          type: string
+          example: Detailed error description
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotImplemented:
+      description: Feature not implemented yet
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: NOT_IMPLEMENTED
+              message:
+                type: string
+                example: This endpoint is not yet implemented
+
