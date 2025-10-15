@@ -1,7 +1,7 @@
 {
   "name": "notification-service",
   "version": "1.0.0",
-  "description": "Notification Microservice with Swagger API-First Design",
+  "description": "WeCloud Logistics - Notification Microservice with Swagger API-First Design",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
