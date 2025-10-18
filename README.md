@@ -2,6 +2,9 @@
 
 A RESTful microservice for notification management using **Swagger API-First Design**. The API specification is defined first in OpenAPI 3.0 YAML format, then implemented.
 
+## Demo Video
+Access this URL: https://youtu.be/2c6s3ev0MNU
+
 ## Features
 
 - ✅ **API-First Design** - OpenAPI spec defined before implementation
