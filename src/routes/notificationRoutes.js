@@ -138,12 +138,38 @@ router.delete('/:id', (req, res) => {
   });
 });
 
-// POST /api/notifications/:id/resend - Resend notification (NOT IMPLEMENTED)
 router.post('/:id/resend', (req, res) => {
-  res.status(501).json({ 
-    error: 'NOT_IMPLEMENTED',
-    message: 'This endpoint is not yet implemented'
-  });
+  const { id } = req.params;
+  const n = notifications.find(n => n.id === id);
+  if (!n) return res.status(404).json({ error: 'Notification not found' });
+
+  if (!['pending', 'failed'].includes(n.status)) {
+    return res.status(400).json({ error: 'Only pending/failed can be resent' });
+  }
+
+  n.status = 'sent';
+  n.sentAt = new Date().toISOString();
+  n.updatedAt = n.sentAt;
+  res.json(n);
+});
+
+// POST /api/notifications/:id/resend - Resend notification
+router.post('/notifications/:id/resend', (req, res) => {
+  const { id } = req.params;
+  const n = notifications.find(n => n.id === id);
+  if (!n) return res.status(404).json({ error: 'Notification not found' });
+
+  // simple policy: only resend pending/failed
+  if (!['pending', 'failed'].includes(n.status)) {
+    return res.status(400).json({ error: 'Only pending/failed can be resent' });
+  }
+
+  // “simulate” sending
+  n.status = 'sent';
+  n.sentAt = new Date().toISOString();
+  n.updatedAt = n.sentAt;
+
+  return res.json(n);
 });
 
 module.exports = router;
