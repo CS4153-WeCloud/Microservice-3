@@ -9,6 +9,9 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const emailRoutes = require('./routes/emailRoutes');
 const smsRoutes = require('./routes/smsRoutes');
 
+const subscriptionRoutes = require('./routes/subscriptionRoutes');
+const tripRoutes = require('./routes/tripRoutes');
+
 const app = express();
 const PORT = process.env.PORT || 3003;
 
@@ -36,6 +39,10 @@ app.get('/health', (req, res) => {
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/sms', smsRoutes);
+
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/trips', tripRoutes);
+
 
 // Root endpoint
 app.get('/', (req, res) => {
