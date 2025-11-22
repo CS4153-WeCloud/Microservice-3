@@ -28,8 +28,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'UP', 
+  res.json({
+    status: 'UP',
     service: 'notification-service',
     timestamp: new Date().toISOString()
   });
@@ -42,7 +42,7 @@ app.use('/api/sms', smsRoutes);
 
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/trips', tripRoutes);
-
+app.use('/api', tripRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -57,9 +57,9 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal Server Error',
-    message: err.message 
+    message: err.message
   });
 });
 
@@ -70,4 +70,3 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
-

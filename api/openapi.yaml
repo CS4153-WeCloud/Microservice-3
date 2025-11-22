@@ -1,7 +1,10 @@
 openapi: 3.0.0
+
 info:
-  title: Notification Service API
-  description: API for managing and sending notifications (Email, SMS, Push)
+  title: Subscription & Trip Service API
+  description: >
+    Atomic microservice for managing semester subscriptions and daily trips
+    in the Columbia Point2Point shuttle system.
   version: 1.0.0
   contact:
     name: API Support
@@ -9,27 +12,24 @@ info:
 
 servers:
   - url: http://localhost:3003
-    description: Development server
-  - url: http://<your-gcp-vm-ip>:3003
-    description: Production server (GCP)
+    description: Local development
+  - url: http://<your-gcp-service-url>
+    description: Deployed service (Cloud Run / VM)
 
 tags:
-  - name: Notifications
-    description: Notification management endpoints
-  - name: Email
-    description: Email notification endpoints
-  - name: SMS
-    description: SMS notification endpoints
   - name: Health
     description: Health check endpoints
+  - name: Subscriptions
+    description: Manage semester subscriptions to active routes
+  - name: Trips
+    description: Manage daily trips and async cancellation tasks
 
 paths:
   /health:
     get:
       summary: Health check
-      tags:
-        - Health
-      description: Check if the service is running
+      tags: [Health]
+      description: Check if the microservice is running
       responses:
         '200':
           description: Service is healthy
@@ -48,12 +48,12 @@ paths:
                     type: string
                     format: date-time
 
-  /api/notifications:
+  /api/subscriptions:
     get:
-      summary: Get all notifications
-      tags:
-        - Notifications
-      description: Retrieve a list of all notifications
+      summary: List subscriptions
+      description: >
+        Returns a paginated list of subscriptions, filtered by query parameters.
+      tags: [Subscriptions]
       parameters:
         - in: query
           name: userId
@@ -61,328 +61,536 @@ paths:
             type: integer
           description: Filter by user ID
         - in: query
-          name: type
+          name: routeId
+          schema:
+            type: integer
+          description: Filter by route ID
+        - in: query
+          name: semester
           schema:
             type: string
-            enum: [email, sms, push]
-          description: Filter by notification type
+          description: Filter by semester code (e.g. 2025F)
         - in: query
           name: status
           schema:
             type: string
-            enum: [pending, sent, failed, delivered]
-          description: Filter by status
+          description: Filter by subscription status
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+          description: Page number (for pagination)
+        - in: query
+          name: pageSize
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Page size (for pagination)
       responses:
         '200':
-          description: List of notifications
+          description: Paginated list of subscriptions
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Notification'
+                $ref: '#/components/schemas/SubscriptionList'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
     post:
-      summary: Create a notification
-      tags:
-        - Notifications
-      description: Create and optionally send a notification
+      summary: Create a new subscription
+      description: >
+        Creates a new semester subscription for a given user and route.
+      tags: [Subscriptions]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/NotificationCreate'
+              $ref: '#/components/schemas/SubscriptionCreate'
       responses:
         '201':
-          description: Notification created successfully
+          description: Subscription created
+          headers:
+            Location:
+              description: Relative URL of the created subscription
+              schema:
+                type: string
+                example: /api/subscriptions/1
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                $ref: '#/components/schemas/Subscription'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /api/notifications/{id}:
+  /api/subscriptions/{id}:
     get:
-      summary: Get notification by ID
-      tags:
-        - Notifications
-      description: Retrieve a specific notification
+      summary: Get a subscription by ID
+      tags: [Subscriptions]
       parameters:
-        - $ref: '#/components/parameters/NotificationId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
       responses:
         '200':
-          description: Notification details
+          description: Subscription details
+          headers:
+            ETag:
+              description: ETag representing the current version of the subscription
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                $ref: '#/components/schemas/Subscription'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
     put:
-      summary: Update notification
-      tags:
-        - Notifications
-      description: Update a notification (NOT IMPLEMENTED)
+      summary: Update a subscription (ETag + If-Match)
+      description: >
+        Updates a subscription. Requires an If-Match header containing the
+        current ETag of the resource. Returns 412 if the ETag does not match.
+      tags: [Subscriptions]
       parameters:
-        - $ref: '#/components/parameters/NotificationId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag of the current subscription state
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/NotificationUpdate'
+              $ref: '#/components/schemas/SubscriptionUpdate'
       responses:
         '200':
-          description: Notification updated
+          description: Subscription updated
+          headers:
+            ETag:
+              description: New ETag after update
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                $ref: '#/components/schemas/Subscription'
         '404':
           $ref: '#/components/responses/NotFound'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
+        '412':
+          description: Precondition Failed - ETag mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '428':
+          description: Precondition Required - If-Match missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
     delete:
-      summary: Delete notification
-      tags:
-        - Notifications
-      description: Delete a notification (NOT IMPLEMENTED)
+      summary: Delete a subscription
+      tags: [Subscriptions]
       parameters:
-        - $ref: '#/components/parameters/NotificationId'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Subscription deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/trips:
+    get:
+      summary: List trips
+      description: >
+        Returns a list of trips, filtered by query parameters.
+      tags: [Trips]
+      parameters:
+        - in: query
+          name: routeId
+          schema:
+            type: integer
+          description: Filter by route ID
+        - in: query
+          name: subscriptionId
+          schema:
+            type: integer
+          description: Filter by subscription ID
+        - in: query
+          name: userId
+          schema:
+            type: integer
+          description: Filter by user ID
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+          description: Filter by trip date
+        - in: query
+          name: type
+          schema:
+            type: string
+            description: Trip type (e.g. morning or evening)
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Filter by trip status
       responses:
         '200':
-          description: Notification deleted
+          description: List of trips
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Notification deleted successfully
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
+                $ref: '#/components/schemas/TripList'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
-  /api/notifications/{id}/resend:
     post:
-      summary: Resend notification
-      tags:
-        - Notifications
-      description: Resend a failed or pending notification (NOT IMPLEMENTED)
-      parameters:
-        - $ref: '#/components/parameters/NotificationId'
-      responses:
-        '200':
-          description: Notification resent
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Notification'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
-
-  /api/email/send:
-    post:
-      summary: Send email notification
-      tags:
-        - Email
-      description: Send an email notification directly (NOT IMPLEMENTED)
+      summary: Create a trip
+      tags: [Trips]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailRequest'
+              $ref: '#/components/schemas/TripCreate'
       responses:
-        '200':
-          description: Email sent successfully
+        '201':
+          description: Trip created
+          headers:
+            Location:
+              description: Relative URL of the created trip
+              schema:
+                type: string
+                example: /api/trips/1
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
+                $ref: '#/components/schemas/Trip'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
-  /api/sms/send:
-    post:
-      summary: Send SMS notification
-      tags:
-        - SMS
-      description: Send an SMS notification directly (NOT IMPLEMENTED)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SMSRequest'
+  /api/trips/{id}:
+    get:
+      summary: Get a trip by ID
+      tags: [Trips]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
       responses:
         '200':
-          description: SMS sent successfully
+          description: Trip details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Notification'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '501':
-          $ref: '#/components/responses/NotImplemented'
+                $ref: '#/components/schemas/Trip'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/trips/{id}/cancel:
+    post:
+      summary: Cancel a trip (asynchronous)
+      description: >
+        Requests cancellation of a trip. Returns 202 Accepted and a task
+        resource to poll for completion status.
+      tags: [Trips]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '202':
+          description: Cancellation request accepted
+          headers:
+            Location:
+              description: URL of the async task resource
+              schema:
+                type: string
+                example: /api/trip-tasks/1
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripTask'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/trip-tasks/{taskId}:
+    get:
+      summary: Get status of a trip cancellation task
+      tags: [Trips]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Task status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TripTask'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
-  parameters:
-    NotificationId:
-      name: id
-      in: path
-      required: true
-      description: Notification ID
-      schema:
-        type: string
-
   schemas:
-    Notification:
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        routeId:
+          type: integer
+        semester:
+          type: string
+          example: 2025F
+        status:
+          type: string
+          example: active
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: ETag of the subscription
+          example: 5d41402abc4b2a76b9719d911017c592
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+              example: /api/subscriptions/1
+            user:
+              type: string
+              example: /api/users/1
+            route:
+              type: string
+              example: /api/routes/10
+            trips:
+              type: string
+              example: /api/trips?subscriptionId=1
+
+    SubscriptionCreate:
+      type: object
+      required: [userId, routeId, semester]
+      properties:
+        userId:
+          type: integer
+        routeId:
+          type: integer
+        semester:
+          type: string
+        status:
+          type: string
+          example: active
+
+    SubscriptionUpdate:
+      type: object
+      properties:
+        userId:
+          type: integer
+        routeId:
+          type: integer
+        semester:
+          type: string
+        status:
+          type: string
+
+    SubscriptionList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+            prev:
+              type: string
+              nullable: true
+            next:
+              type: string
+              nullable: true
+
+    Trip:
+      type: object
+      properties:
+        id:
+          type: integer
+        routeId:
+          type: integer
+        subscriptionId:
+          type: integer
+          nullable: true
+        userId:
+          type: integer
+          nullable: true
+        date:
+          type: string
+          format: date
+          example: 2025-09-15
+        type:
+          type: string
+          description: morning or evening
+          example: morning
+        status:
+          type: string
+          example: scheduled
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+              example: /api/trips/1
+            route:
+              type: string
+              example: /api/routes/10
+            subscription:
+              type: string
+              nullable: true
+              example: /api/subscriptions/1
+            user:
+              type: string
+              nullable: true
+              example: /api/users/1
+            cancel:
+              type: string
+              example: /api/trips/1/cancel
+
+    TripCreate:
+      type: object
+      required: [routeId, date, type]
+      properties:
+        routeId:
+          type: integer
+        subscriptionId:
+          type: integer
+        userId:
+          type: integer
+        date:
+          type: string
+          format: date
+        type:
+          type: string
+          description: morning or evening
+        status:
+          type: string
+
+    TripList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trip'
+        total:
+          type: integer
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+
+    TripTask:
       type: object
       properties:
         id:
           type: string
-          description: Notification ID (UUID)
-          example: 123e4567-e89b-12d3-a456-426614174000
-        userId:
-          type: integer
-          description: User ID
-          example: 1
+          example: "1"
         type:
           type: string
-          enum: [email, sms, push]
-          description: Notification type
-          example: email
-        recipient:
+          example: trip-cancel
+        tripId:
           type: string
-          description: Recipient address (email/phone)
-          example: user@example.com
-        subject:
-          type: string
-          description: Notification subject/title
-          example: Order Confirmation
-        message:
-          type: string
-          description: Notification message content
-          example: Your order has been confirmed
+          example: "1"
         status:
           type: string
-          enum: [pending, sent, failed, delivered]
-          description: Notification status
-          example: sent
-        metadata:
-          type: object
-          description: Additional metadata
-          additionalProperties: true
-        sentAt:
-          type: string
-          format: date-time
-          description: When notification was sent
+          enum: [pending, success, failed]
+          example: pending
         createdAt:
           type: string
           format: date-time
-          description: When notification was created
-        updatedAt:
+        finishedAt:
           type: string
           format: date-time
-          description: When notification was last updated
-
-    NotificationCreate:
-      type: object
-      required:
-        - userId
-        - type
-        - recipient
-        - message
-      properties:
-        userId:
-          type: integer
-          example: 1
-        type:
-          type: string
-          enum: [email, sms, push]
-          example: email
-        recipient:
-          type: string
-          example: user@example.com
-        subject:
-          type: string
-          example: Welcome!
-        message:
-          type: string
-          example: Welcome to our platform!
-        sendImmediately:
-          type: boolean
-          default: false
-          description: Send notification immediately
-        metadata:
+          nullable: true
+        result:
           type: object
-          additionalProperties: true
-
-    NotificationUpdate:
-      type: object
-      properties:
-        status:
+          nullable: true
+        error:
           type: string
-          enum: [pending, sent, failed, delivered]
-        message:
-          type: string
-        subject:
-          type: string
-
-    EmailRequest:
-      type: object
-      required:
-        - to
-        - subject
-        - message
-      properties:
-        to:
-          type: string
-          format: email
-          example: user@example.com
-        subject:
-          type: string
-          example: Order Confirmation
-        message:
-          type: string
-          example: Your order has been confirmed
-        userId:
-          type: integer
-          example: 1
-
-    SMSRequest:
-      type: object
-      required:
-        - to
-        - message
-      properties:
-        to:
-          type: string
-          example: +1234567890
-        message:
-          type: string
-          example: Your verification code is 123456
-        userId:
-          type: integer
-          example: 1
+          nullable: true
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+              example: /api/trip-tasks/1
+            trip:
+              type: string
+              example: /api/trips/1
 
     Error:
       type: object
@@ -415,18 +623,3 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-
-    NotImplemented:
-      description: Feature not implemented yet
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              error:
-                type: string
-                example: NOT_IMPLEMENTED
-              message:
-                type: string
-                example: This endpoint is not yet implemented
-
