@@ -63,6 +63,32 @@ app.use((err, req, res, next) => {
   });
 });
 
+app.get('/api/db-test', async (req, res) => {
+  try {
+    const db = require('./db');
+    const [rows] = await db.query('SELECT DATABASE() as current_db, USER() as current_user, NOW() as current_time');
+    res.json({
+      status: '✅ Database connection successful',
+      connection: {
+        database: rows[0].current_db,
+        user: rows[0].current_user,
+        timestamp: rows[0].current_time,
+        host: process.env.DB_HOST
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: '❌ Database connection failed',
+      error: error.message,
+      config: {
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        user: process.env.DB_USER
+      }
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Notification Service running on port ${PORT}`);
   console.log(`API Documentation available at http://localhost:${PORT}/api-docs`);

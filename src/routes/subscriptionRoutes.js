@@ -1,11 +1,9 @@
 // src/routes/subscriptionRoutes.js
 const express = require('express');
 const crypto = require('crypto');
+const db = require('../db');
 
 const router = express.Router();
-
-let subscriptions = [];
-let nextId = 1;
 
 function computeEtag(subscription) {
   const payload = JSON.stringify({
@@ -33,158 +31,216 @@ function addLinks(subscription) {
 }
 
 // GET /api/subscriptions
-// query params + pagination + linked data
-router.get('/', (req, res) => {
-  let { userId, routeId, semester, status, page, pageSize } = req.query;
+router.get('/', async (req, res) => {
+  try {
+    let { userId, routeId, semester, status, page, pageSize } = req.query;
 
-  let result = subscriptions;
+    let sql = 'SELECT * FROM subscriptions WHERE 1=1';
+    const params = [];
 
-  if (userId) {
-    result = result.filter((s) => String(s.userId) === String(userId));
+    if (userId) {
+      sql += ' AND userId = ?';
+      params.push(userId);
+    }
+    if (routeId) {
+      sql += ' AND routeId = ?';
+      params.push(routeId);
+    }
+    if (semester) {
+      sql += ' AND semester = ?';
+      params.push(semester);
+    }
+    if (status) {
+      sql += ' AND status = ?';
+      params.push(status);
+    }
+
+    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
+    const [countResult] = await db.query(countSql, params);
+    const total = countResult[0].total;
+
+    page = parseInt(page || '1', 10);
+    pageSize = parseInt(pageSize || String(total || 10), 10);
+    const pageCount = Math.ceil(total / pageSize);
+    const offset = (page - 1) * pageSize;
+
+    sql += ` LIMIT ${pageSize} OFFSET ${offset}`;
+    params.push(pageSize, offset);
+
+    const [rows] = await db.query(sql, params);
+
+    const items = rows.map((sub) => {
+      sub.etag = computeEtag(sub);
+      return addLinks(sub);
+    });
+
+    const basePath = '/api/subscriptions';
+    const links = {
+      self: `${basePath}?page=${page}&pageSize=${pageSize}`,
+    };
+    if (page > 1) {
+      links.prev = `${basePath}?page=${page - 1}&pageSize=${pageSize}`;
+    }
+    if (page < pageCount) {
+      links.next = `${basePath}?page=${page + 1}&pageSize=${pageSize}`;
+    }
+
+    res.json({
+      data: items,
+      page,
+      pageSize,
+      total,
+      _links: links,
+      source: 'MySQL Database at ' + process.env.DB_HOST,
+    });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
   }
-  if (routeId) {
-    result = result.filter((s) => String(s.routeId) === String(routeId));
-  }
-  if (semester) {
-    result = result.filter((s) => s.semester === semester);
-  }
-  if (status) {
-    result = result.filter((s) => s.status === status);
-  }
-
-  const total = result.length;
-  page = parseInt(page || '1', 10);
-  pageSize = parseInt(pageSize || String(total || 1), 10);
-
-  const pageCount = Math.ceil(total / pageSize);
-  const start = (page - 1) * pageSize;
-  const end = start + pageSize;
-
-  const items = result.slice(start, end).map(addLinks);
-
-  const basePath = '/api/subscriptions';
-  const links = {
-    self: `${basePath}?page=${page}&pageSize=${pageSize}`,
-  };
-  if (page > 1) {
-    links.prev = `${basePath}?page=${page - 1}&pageSize=${pageSize}`;
-  }
-  if (page < pageCount) {
-    links.next = `${basePath}?page=${page + 1}&pageSize=${pageSize}`;
-  }
-
-  res.json({
-    data: items,
-    page,
-    pageSize,
-    total,
-    _links: links,
-  });
 });
 
 // POST /api/subscriptions
-// 201 Created + Location header + linked data
-router.post('/', (req, res) => {
-  const { userId, routeId, semester, status = 'active' } = req.body;
+router.post('/', async (req, res) => {
+  try {
+    const { userId, routeId, semester, status = 'active' } = req.body;
 
-  if (!userId || !routeId || !semester) {
-    return res.status(400).json({
-      error: 'Missing required fields: userId, routeId, semester',
-    });
+    if (!userId || !routeId || !semester) {
+      return res.status(400).json({
+        error: 'Missing required fields: userId, routeId, semester',
+      });
+    }
+
+    const now = new Date();
+    const sql = `
+      INSERT INTO subscriptions (userId, routeId, semester, status, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+
+    const [result] = await db.query(sql, [userId, routeId, semester, status, now, now]);
+
+    const subscription = {
+      id: result.insertId,
+      userId,
+      routeId,
+      semester,
+      status,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+
+    subscription.etag = computeEtag(subscription);
+
+    const resourcePath = `/api/subscriptions/${subscription.id}`;
+
+    res
+      .status(201)
+      .location(resourcePath)
+      .json(addLinks(subscription));
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
   }
-
-  const now = new Date().toISOString();
-
-  const subscription = {
-    id: nextId++,
-    userId,
-    routeId,
-    semester,
-    status,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  subscription.etag = computeEtag(subscription);
-  subscriptions.push(subscription);
-
-  const resourcePath = `/api/subscriptions/${subscription.id}`;
-
-  res
-    .status(201)
-    .location(resourcePath)
-    .json(addLinks(subscription));
 });
 
 // GET /api/subscriptions/:id
-// ETag header on GET
-router.get('/:id', (req, res) => {
-  const { id } = req.params;
-  const subscription = subscriptions.find((s) => String(s.id) === String(id));
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = 'SELECT * FROM subscriptions WHERE id = ?';
+    const [rows] = await db.query(sql, [id]);
 
-  if (!subscription) {
-    return res.status(404).json({ error: 'Subscription not found' });
-  }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
 
-  if (!subscription.etag) {
+    const subscription = rows[0];
     subscription.etag = computeEtag(subscription);
-  }
 
-  res.set('ETag', subscription.etag).json(addLinks(subscription));
+    res.set('ETag', subscription.etag).json(addLinks(subscription));
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
+  }
 });
 
 // PUT /api/subscriptions/:id
-// ETag + If-Match + 412/428
-router.put('/:id', (req, res) => {
-  const { id } = req.params;
-  const ifMatch = req.headers['if-match'];
+router.put('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ifMatch = req.headers['if-match'];
 
-  const subscription = subscriptions.find((s) => String(s.id) === String(id));
+    const selectSql = 'SELECT * FROM subscriptions WHERE id = ?';
+    const [rows] = await db.query(selectSql, [id]);
 
-  if (!subscription) {
-    return res.status(404).json({ error: 'Subscription not found' });
-  }
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
 
-  if (!subscription.etag) {
+    const subscription = rows[0];
+    const currentEtag = computeEtag(subscription);
+
+    if (!ifMatch) {
+      return res.status(428).json({
+        error: 'Precondition Required: If-Match header is required for updates',
+      });
+    }
+
+    if (ifMatch !== currentEtag) {
+      return res.status(412).json({
+        error: 'Precondition Failed: ETag does not match current resource state',
+      });
+    }
+
+    const { userId, routeId, semester, status } = req.body;
+
+    if (userId !== undefined) subscription.userId = userId;
+    if (routeId !== undefined) subscription.routeId = routeId;
+    if (semester !== undefined) subscription.semester = semester;
+    if (status !== undefined) subscription.status = status;
+
+    subscription.updatedAt = new Date();
+
+    const updateSql = `
+      UPDATE subscriptions 
+      SET userId = ?, routeId = ?, semester = ?, status = ?, updatedAt = ?
+      WHERE id = ?
+    `;
+
+    await db.query(updateSql, [
+      subscription.userId,
+      subscription.routeId,
+      subscription.semester,
+      subscription.status,
+      subscription.updatedAt,
+      id,
+    ]);
+
+    subscription.updatedAt = subscription.updatedAt.toISOString();
     subscription.etag = computeEtag(subscription);
+
+    res.set('ETag', subscription.etag).json(addLinks(subscription));
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
   }
-
-  if (!ifMatch) {
-    return res.status(428).json({
-      error: 'Precondition Required: If-Match header is required for updates',
-    });
-  }
-
-  if (ifMatch !== subscription.etag) {
-    return res.status(412).json({
-      error: 'Precondition Failed: ETag does not match current resource state',
-    });
-  }
-
-  const { userId, routeId, semester, status } = req.body;
-
-  if (userId !== undefined) subscription.userId = userId;
-  if (routeId !== undefined) subscription.routeId = routeId;
-  if (semester !== undefined) subscription.semester = semester;
-  if (status !== undefined) subscription.status = status;
-
-  subscription.updatedAt = new Date().toISOString();
-  subscription.etag = computeEtag(subscription);
-
-  res.set('ETag', subscription.etag).json(addLinks(subscription));
 });
 
 // DELETE /api/subscriptions/:id
-router.delete('/:id', (req, res) => {
-  const { id } = req.params;
-  const idx = subscriptions.findIndex((s) => String(s.id) === String(id));
+router.delete('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = 'DELETE FROM subscriptions WHERE id = ?';
+    const [result] = await db.query(sql, [id]);
 
-  if (idx === -1) {
-    return res.status(404).json({ error: 'Subscription not found' });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
   }
-
-  subscriptions.splice(idx, 1);
-  res.status(204).send();
 });
 
 module.exports = router;

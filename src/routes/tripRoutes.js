@@ -1,10 +1,8 @@
 // src/routes/tripRoutes.js
 const express = require('express');
+const db = require('../db');
 
 const router = express.Router();
-
-let trips = [];
-let nextTripId = 1;
 
 let asyncTasks = {};
 let nextTaskId = 1;
@@ -24,142 +22,181 @@ function addTripLinks(trip) {
   };
 }
 
-// GET /api/trips (collection)
-// query parameters + linked data
-router.get('/', (req, res) => {
-  const { routeId, date, type, status, subscriptionId, userId } = req.query;
+// GET /api/trips
+router.get('/', async (req, res) => {
+  try {
+    const { routeId, date, type, status, subscriptionId, userId } = req.query;
 
-  let result = trips;
+    let sql = 'SELECT * FROM trips WHERE 1=1';
+    const params = [];
 
-  if (routeId) {
-    result = result.filter((t) => String(t.routeId) === String(routeId));
-  }
-  if (subscriptionId) {
-    result = result.filter(
-      (t) => String(t.subscriptionId) === String(subscriptionId)
-    );
-  }
-  if (userId) {
-    result = result.filter((t) => String(t.userId) === String(userId));
-  }
-  if (date) {
-    result = result.filter((t) => t.date === date);
-  }
-  if (type) {
-    result = result.filter((t) => t.type === type);
-  }
-  if (status) {
-    result = result.filter((t) => t.status === status);
-  }
+    if (routeId) {
+      sql += ' AND routeId = ?';
+      params.push(routeId);
+    }
+    if (subscriptionId) {
+      sql += ' AND subscriptionId = ?';
+      params.push(subscriptionId);
+    }
+    if (userId) {
+      sql += ' AND userId = ?';
+      params.push(userId);
+    }
+    if (date) {
+      sql += ' AND date = ?';
+      params.push(date);
+    }
+    if (type) {
+      sql += ' AND type = ?';
+      params.push(type);
+    }
+    if (status) {
+      sql += ' AND status = ?';
+      params.push(status);
+    }
 
-  res.json({
-    data: result.map(addTripLinks),
-    total: result.length,
-    _links: {
-      self: '/api/trips',
-    },
-  });
+    const [rows] = await db.query(sql, params);
+
+    res.json({
+      data: rows.map(addTripLinks),
+      total: rows.length,
+      source: 'MySQL Database at ' + process.env.DB_HOST,
+      _links: {
+        self: '/api/trips',
+      },
+    });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
+  }
 });
 
 // POST /api/trips
-// 201 Created with Location + links
-router.post('/', (req, res) => {
-  const { routeId, subscriptionId, userId, date, type, status = 'scheduled' } =
-    req.body;
+router.post('/', async (req, res) => {
+  try {
+    const { routeId, subscriptionId, userId, date, type, status = 'scheduled' } =
+      req.body;
 
-  if (!routeId || !date || !type) {
-    return res.status(400).json({
-      error: 'Missing required fields: routeId, date, type',
-    });
+    if (!routeId || !date || !type) {
+      return res.status(400).json({
+        error: 'Missing required fields: routeId, date, type',
+      });
+    }
+
+    const now = new Date();
+    const sql = `
+      INSERT INTO trips (routeId, subscriptionId, userId, date, type, status, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const [result] = await db.query(sql, [
+      routeId,
+      subscriptionId || null,
+      userId || null,
+      date,
+      type,
+      status,
+      now,
+      now,
+    ]);
+
+    const trip = {
+      id: result.insertId,
+      routeId,
+      subscriptionId: subscriptionId || null,
+      userId: userId || null,
+      date,
+      type,
+      status,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+
+    const resourcePath = `/api/trips/${trip.id}`;
+
+    res.status(201).location(resourcePath).json(addTripLinks(trip));
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
   }
-
-  const now = new Date().toISOString();
-
-  const trip = {
-    id: nextTripId++,
-    routeId,
-    subscriptionId: subscriptionId || null,
-    userId: userId || null,
-    date, // e.g. '2025-09-15'
-    type, // 'morning' | 'evening'
-    status,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  trips.push(trip);
-
-  const resourcePath = `/api/trips/${trip.id}`;
-
-  res.status(201).location(resourcePath).json(addTripLinks(trip));
 });
 
 // GET /api/trips/:id
-router.get('/:id', (req, res) => {
-  const { id } = req.params;
-  const trip = trips.find((t) => String(t.id) === String(id));
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sql = 'SELECT * FROM trips WHERE id = ?';
+    const [rows] = await db.query(sql, [id]);
 
-  if (!trip) {
-    return res.status(404).json({ error: 'Trip not found' });
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    res.json(addTripLinks(rows[0]));
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
   }
-
-  res.json(addTripLinks(trip));
 });
 
 // POST /api/trips/:id/cancel
-// 202 Accepted + async + polling
-router.post('/:id/cancel', (req, res) => {
-  const { id } = req.params;
-  const trip = trips.find((t) => String(t.id) === String(id));
+router.post('/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const checkSql = 'SELECT * FROM trips WHERE id = ?';
+    const [rows] = await db.query(checkSql, [id]);
 
-  if (!trip) {
-    return res.status(404).json({ error: 'Trip not found' });
-  }
-
-  const taskId = nextTaskId++;
-  const task = {
-    id: String(taskId),
-    type: 'trip-cancel',
-    tripId: String(id),
-    status: 'pending', // 'pending' | 'success' | 'failed'
-    createdAt: new Date().toISOString(),
-  };
-
-  asyncTasks[task.id] = task;
-
-  // Simulate async processing
-  setTimeout(() => {
-    const t = trips.find((tr) => String(tr.id) === String(id));
-    if (!t) {
-      asyncTasks[task.id].status = 'failed';
-      asyncTasks[task.id].error = 'Trip not found during async processing';
-    } else {
-      t.status = 'cancelled';
-      t.updatedAt = new Date().toISOString();
-      asyncTasks[task.id].status = 'success';
-      asyncTasks[task.id].finishedAt = new Date().toISOString();
-      asyncTasks[task.id].result = {
-        tripId: t.id,
-        status: t.status,
-      };
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Trip not found' });
     }
-  }, 3000);
 
-  const statusPath = `/api/trip-tasks/${task.id}`;
+    const taskId = nextTaskId++;
+    const task = {
+      id: String(taskId),
+      type: 'trip-cancel',
+      tripId: String(id),
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
 
-  res.status(202).location(statusPath).json({
-    taskId: task.id,
-    status: task.status,
-    _links: {
-      self: statusPath,
-      trip: `/api/trips/${id}`,
-    },
-  });
+    asyncTasks[task.id] = task;
+
+    setTimeout(async () => {
+      try {
+        const updateSql = 'UPDATE trips SET status = ?, updatedAt = ? WHERE id = ?';
+        const now = new Date();
+        await db.query(updateSql, ['cancelled', now, id]);
+
+        asyncTasks[task.id].status = 'success';
+        asyncTasks[task.id].finishedAt = new Date().toISOString();
+        asyncTasks[task.id].result = {
+          tripId: id,
+          status: 'cancelled',
+        };
+      } catch (error) {
+        asyncTasks[task.id].status = 'failed';
+        asyncTasks[task.id].error = error.message;
+      }
+    }, 3000);
+
+    const statusPath = `/api/trip-tasks/${task.id}`;
+
+    res.status(202).location(statusPath).json({
+      taskId: task.id,
+      status: task.status,
+      _links: {
+        self: statusPath,
+        trip: `/api/trips/${id}`,
+      },
+    });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
+  }
 });
 
 // GET /api/trip-tasks/:taskId
-// polling for async status
-// NOTE: this is defined as an ABSOLUTE path and will be mounted at /api
 router.get('/trip-tasks/:taskId', (req, res) => {
   const { taskId } = req.params;
   const task = asyncTasks[String(taskId)];
