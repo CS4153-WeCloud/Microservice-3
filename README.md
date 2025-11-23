@@ -3,7 +3,8 @@
 A RESTful microservice for subscription and trip management using **Swagger API-First Design**. The API specification is defined first in OpenAPI 3.0 YAML format, then implemented.
 
 ## Demo Video
-Access this URL: https://youtu.be/2c6s3ev0MNU
+Sprint 1: https://youtu.be/2c6s3ev0MNU
+Sprint 2: https://youtu.be/TI6YJAPA0qo
 
 ## Features
 
@@ -112,18 +113,6 @@ microservice-3-subscription/
 └── README.md
 ```
 
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| PORT | Server port | 3003 |
-| NODE_ENV | Environment | development |
-| DB_HOST | MySQL host (internal IP) | localhost |
-| DB_USER | MySQL user | appuser |
-| DB_PASSWORD | MySQL password | - |
-| DB_NAME | Database name | subscription_service_db |
-| DB_PORT | MySQL port | 3306 |
-
 ## Database Schema
 
 ### Subscriptions Table
@@ -155,99 +144,6 @@ CREATE TABLE trips (
   createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
-```
-
-## Development Workflow
-
-### API-First Development Process:
-
-1. **Update OpenAPI Spec** (`api/openapi.yaml`)
-   - Define new endpoints
-   - Specify request/response schemas
-   - Document parameters and responses
-
-2. **Review Specification**
-   - Team reviews via Swagger UI
-   - Validate API design
-   - Gather feedback
-
-3. **Implement Routes**
-   - Create/update route handlers
-   - Follow the spec exactly
-   - Return proper status codes
-
-4. **Test Against Spec**
-   - Verify implementation matches spec
-   - Test all response codes
-   - Validate data schemas
-
-## Sample Data
-
-The service connects to MySQL database with proper schema. Ensure you:
-1. Have MySQL VM running with internal IP
-2. Database schemas are loaded
-3. Proper firewall rules are configured for internal communication
-
-## Future Enhancements
-
-- [ ] Add subscription payment integration
-- [ ] Implement trip booking system
-- [ ] Add notification templates
-- [ ] Add scheduling capabilities for trips
-- [ ] Implement subscription auto-renewal
-- [ ] Add analytics and reporting
-- [ ] Add webhooks for status changes
-- [ ] Implement batch operations
-- [ ] Add rate limiting
-- [ ] Integrate with payment gateway
-- [ ] Add trip recommendations based on subscription tier
-
-## Development Team Notes
-
-- This service follows API-First design - always update `openapi.yaml` first
-- All endpoints return consistent error formats
-- Database uses MySQL with proper connection pooling
-- Internal VPC communication via private IPs only
-- Use IAP tunnels for local development and testing
-- Service integrates with User and Order services via internal network
-- Subscription tiers can be extended for additional features
-
-## Integration Examples
-
-### User Service Integration
-
-When a new user registers, create a basic subscription:
-
-```javascript
-// In User Service
-const axios = require('axios');
-
-async function createUserSubscription(user) {
-  await axios.post('http://10.128.0.5:3003/api/subscriptions', {
-    userId: user.id,
-    tier: 'basic',
-    status: 'active',
-    startDate: new Date().toISOString().split('T')[0]
-  });
-}
-```
-
-### Order Service Integration
-
-When booking is confirmed, create a trip:
-
-```javascript
-// In Order Service
-async function createTrip(booking) {
-  await axios.post('http://10.128.0.5:3003/api/trips', {
-    userId: booking.userId,
-    origin: booking.origin,
-    destination: booking.destination,
-    departureDate: booking.departureDate,
-    returnDate: booking.returnDate,
-    status: 'confirmed'
-  });
-}
 ```
 
 ## Network Architecture
