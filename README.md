@@ -1,6 +1,6 @@
-# Notification Service Microservice
+# Subscription & Trip Management Service
 
-A RESTful microservice for notification management using **Swagger API-First Design**. The API specification is defined first in OpenAPI 3.0 YAML format, then implemented.
+A RESTful microservice for subscription and trip management using **Swagger API-First Design**. The API specification is defined first in OpenAPI 3.0 YAML format, then implemented.
 
 ## Demo Video
 Access this URL: https://youtu.be/2c6s3ev0MNU
@@ -10,8 +10,9 @@ Access this URL: https://youtu.be/2c6s3ev0MNU
 - ✅ **API-First Design** - OpenAPI spec defined before implementation
 - ✅ Complete REST API endpoints (GET, POST, PUT, DELETE)
 - ✅ Swagger UI for interactive API documentation
-- ✅ Support for multiple notification types (Email, SMS, Push)
-- ✅ In-memory data storage
+- ✅ Subscription management
+- ✅ Trip management and tracking
+- ✅ MySQL database integration
 - ✅ Health check endpoint
 - ✅ Ready for GCP VM deployment
 
@@ -20,7 +21,8 @@ Access this URL: https://youtu.be/2c6s3ev0MNU
 - Node.js + Express
 - OpenAPI 3.0 (YAML specification)
 - Swagger UI
-- In-memory storage
+- MySQL database
+- PM2 process management
 
 ## API-First Approach
 
@@ -59,134 +61,51 @@ npm run dev
 
 ## API Endpoints
 
-### Implemented Endpoints
+### Subscription Endpoints
 
 ✅ **Fully Implemented:**
-- `GET /api/notifications` - Get all notifications (with filters)
+- `GET /api/subscriptions` - Get all subscriptions
+- `GET /api/subscriptions/:id` - Get subscription by ID
+- `POST /api/subscriptions` - Create subscription
+- `PUT /api/subscriptions/:id` - Update subscription
+- `DELETE /api/subscriptions/:id` - Delete subscription
+
+### Trip Endpoints
+
+✅ **Fully Implemented:**
+- `GET /api/trips` - Get all trips
+- `GET /api/trips/:id` - Get trip by ID
+- `POST /api/trips` - Create trip
+- `PUT /api/trips/:id` - Update trip
+- `DELETE /api/trips/:id` - Delete trip
+
+### Legacy Notification Endpoints
+
+⚠️ **Partially Implemented:**
+- `GET /api/notifications` - Get all notifications
 - `GET /api/notifications/:id` - Get notification by ID
 - `POST /api/notifications` - Create notification
 
 ⚠️ **Not Yet Implemented (return 501):**
-- `PUT /api/notifications/:id` - Update notification
-- `DELETE /api/notifications/:id` - Delete notification
-- `POST /api/notifications/:id/resend` - Resend notification
 - `POST /api/email/send` - Send email directly
 - `POST /api/sms/send` - Send SMS directly
 
-### Example Requests
-
-```bash
-# Get all notifications
-curl http://localhost:3003/api/notifications
-
-# Filter by user
-curl http://localhost:3003/api/notifications?userId=1
-
-# Filter by type and status
-curl http://localhost:3003/api/notifications?type=email&status=sent
-
-# Create a notification
-curl -X POST http://localhost:3003/api/notifications \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": 1,
-    "type": "email",
-    "recipient": "user@example.com",
-    "subject": "Welcome!",
-    "message": "Thank you for signing up",
-    "sendImmediately": true,
-    "metadata": {
-      "source": "registration"
-    }
-  }'
-
-# Get specific notification
-curl http://localhost:3003/api/notifications/<notification-id>
-```
-
-## OpenAPI Specification
-
-The complete API specification is defined in `api/openapi.yaml`. Key features:
-
-- **Notification Types**: email, sms, push
-- **Status States**: pending, sent, failed, delivered
-- **Comprehensive schemas** for all request/response types
-- **Query parameters** for filtering
-- **Error responses** with consistent format
-
-View the spec interactively at: http://localhost:3003/api-docs
-
-## GCP Deployment
-
-### 1. Create a VM Instance
-
-```bash
-gcloud compute instances create notification-service-vm \
-  --zone=us-central1-a \
-  --machine-type=e2-small \
-  --image-family=ubuntu-2004-lts \
-  --image-project=ubuntu-os-cloud \
-  --tags=http-server
-```
-
-### 2. Configure Firewall
-
-```bash
-gcloud compute firewall-rules create allow-notification-service \
-  --allow=tcp:3003 \
-  --target-tags=http-server
-```
-
-### 3. Deploy Application
-
-```bash
-# SSH into VM
-gcloud compute ssh notification-service-vm --zone=us-central1-a
-
-# Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Clone your repo
-git clone <your-repo-url>
-cd microservice-3-notification
-
-# Install dependencies
-npm install
-
-# Set up environment variables
-cp env.example .env
-
-# Start with PM2
-sudo npm install -g pm2
-pm2 start src/server.js --name notification-service
-pm2 save
-pm2 startup
-```
-
-## Testing
-
-```bash
-# Get external IP
-gcloud compute instances describe notification-service-vm --zone=us-central1-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
-
-# Test the API
-curl http://<external-ip>:3003/health
-curl http://<external-ip>:3003/api/notifications
-```
 
 ## Project Structure
 
 ```
-microservice-3-notification/
+microservice-3-subscription/
 ├── api/
-│   └── openapi.yaml        # OpenAPI 3.0 specification (API-First)
+│   └── openapi.yaml              # OpenAPI 3.0 specification (API-First)
 ├── src/
 │   ├── routes/
-│   │   ├── notificationRoutes.js  # Notification endpoints
-│   │   ├── emailRoutes.js         # Email endpoints
-│   │   └── smsRoutes.js           # SMS endpoints
-│   └── server.js           # Express app entry point
+│   │   ├── subscriptionRoutes.js # Subscription endpoints
+│   │   ├── tripRoutes.js         # Trip endpoints
+│   │   ├── notificationRoutes.js # Legacy notification endpoints
+│   │   ├── emailRoutes.js        # Email endpoints (501)
+│   │   └── smsRoutes.js          # SMS endpoints (501)
+│   ├── db.js                     # Database connection
+│   └── server.js                 # Express app entry point
 ├── env.example
 ├── package.json
 ├── Dockerfile
@@ -199,10 +118,44 @@ microservice-3-notification/
 |----------|-------------|---------|
 | PORT | Server port | 3003 |
 | NODE_ENV | Environment | development |
-| SMTP_HOST | Email SMTP host | smtp.gmail.com |
-| SMTP_PORT | Email SMTP port | 587 |
-| TWILIO_ACCOUNT_SID | Twilio Account SID | - |
-| TWILIO_AUTH_TOKEN | Twilio Auth Token | - |
+| DB_HOST | MySQL host (internal IP) | localhost |
+| DB_USER | MySQL user | appuser |
+| DB_PASSWORD | MySQL password | - |
+| DB_NAME | Database name | subscription_service_db |
+| DB_PORT | MySQL port | 3306 |
+
+## Database Schema
+
+### Subscriptions Table
+
+```sql
+CREATE TABLE subscriptions (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  userId INT NOT NULL,
+  tier ENUM('basic', 'premium', 'enterprise') NOT NULL,
+  status ENUM('active', 'inactive', 'cancelled') NOT NULL,
+  startDate DATE NOT NULL,
+  endDate DATE,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+### Trips Table
+
+```sql
+CREATE TABLE trips (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  userId INT NOT NULL,
+  origin VARCHAR(255) NOT NULL,
+  destination VARCHAR(255) NOT NULL,
+  departureDate DATE NOT NULL,
+  returnDate DATE,
+  status ENUM('planned', 'confirmed', 'in_progress', 'completed', 'cancelled') NOT NULL,
+  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
 
 ## Development Workflow
 
@@ -230,70 +183,92 @@ microservice-3-notification/
 
 ## Sample Data
 
-The service initializes with 2 sample notifications for testing:
-- Email notification (sent)
-- SMS notification (delivered)
+The service connects to MySQL database with proper schema. Ensure you:
+1. Have MySQL VM running with internal IP
+2. Database schemas are loaded
+3. Proper firewall rules are configured for internal communication
 
 ## Future Enhancements
 
-- [ ] Implement email sending (SMTP integration)
-- [ ] Implement SMS sending (Twilio integration)
-- [ ] Implement push notifications (FCM/APNS)
+- [ ] Add subscription payment integration
+- [ ] Implement trip booking system
 - [ ] Add notification templates
-- [ ] Add scheduling capabilities
-- [ ] Migrate to persistent database
-- [ ] Add retry mechanism for failed notifications
-- [ ] Add webhooks for delivery status
-- [ ] Implement batch sending
+- [ ] Add scheduling capabilities for trips
+- [ ] Implement subscription auto-renewal
+- [ ] Add analytics and reporting
+- [ ] Add webhooks for status changes
+- [ ] Implement batch operations
 - [ ] Add rate limiting
+- [ ] Integrate with payment gateway
+- [ ] Add trip recommendations based on subscription tier
 
 ## Development Team Notes
 
 - This service follows API-First design - always update `openapi.yaml` first
 - All endpoints return consistent error formats
-- NOT_IMPLEMENTED endpoints return 501 status
-- In-memory storage resets on restart
-- Ready for integration with email/SMS providers
-- Can be integrated with User and Order services for automated notifications
+- Database uses MySQL with proper connection pooling
+- Internal VPC communication via private IPs only
+- Use IAP tunnels for local development and testing
+- Service integrates with User and Order services via internal network
+- Subscription tiers can be extended for additional features
 
 ## Integration Examples
 
-### Order Service Integration
-
-When an order is created/updated in Order Service:
-
-```javascript
-// In Order Service
-const axios = require('axios');
-
-async function sendOrderNotification(order) {
-  await axios.post('http://notification-service:3003/api/notifications', {
-    userId: order.userId,
-    type: 'email',
-    recipient: order.userEmail,
-    subject: 'Order Confirmation',
-    message: `Your order ${order.id} has been confirmed`,
-    sendImmediately: true,
-    metadata: { orderId: order.id }
-  });
-}
-```
-
 ### User Service Integration
 
-When a new user registers:
+When a new user registers, create a basic subscription:
 
 ```javascript
 // In User Service
-async function sendWelcomeEmail(user) {
-  await axios.post('http://notification-service:3003/api/notifications', {
+const axios = require('axios');
+
+async function createUserSubscription(user) {
+  await axios.post('http://10.128.0.5:3003/api/subscriptions', {
     userId: user.id,
-    type: 'email',
-    recipient: user.email,
-    subject: 'Welcome!',
-    message: 'Thank you for joining our platform',
-    sendImmediately: true
+    tier: 'basic',
+    status: 'active',
+    startDate: new Date().toISOString().split('T')[0]
   });
 }
 ```
 
+### Order Service Integration
+
+When booking is confirmed, create a trip:
+
+```javascript
+// In Order Service
+async function createTrip(booking) {
+  await axios.post('http://10.128.0.5:3003/api/trips', {
+    userId: booking.userId,
+    origin: booking.origin,
+    destination: booking.destination,
+    departureDate: booking.departureDate,
+    returnDate: booking.returnDate,
+    status: 'confirmed'
+  });
+}
+```
+
+## Network Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│              GCP VPC (Internal Network)          │
+│                                                  │
+│  ┌────────────────────┐    ┌──────────────────┐  │
+│  │  Subscription VM   │◄───┤   local          │  │
+│  │  Port: 3003        │    │                  │  │
+│  │  10.128.0.3        │    │                  │  │
+│  └─────────┬──────────┘    └──────────────────┘  │
+│            │                                     │
+│            │ Internal Network                    │
+│            │ (10.128.0.0/20)                     │
+│            ▼                                     │
+│  ┌────────────────────────────────────────────┐  │
+│  │           MySQL VM                         │  │
+│  │           Port: 3306                       │  │
+│  │           10.128.0.4                       │  │
+│  └────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘
+```
