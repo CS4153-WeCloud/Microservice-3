@@ -38,13 +38,14 @@ router.get('/', async (req, res) => {
     let sql = 'SELECT * FROM subscriptions WHERE 1=1';
     const params = [];
 
+    // Filter by query params
     if (userId) {
       sql += ' AND userId = ?';
-      params.push(userId);
+      params.push(parseInt(userId, 10));
     }
     if (routeId) {
       sql += ' AND routeId = ?';
-      params.push(routeId);
+      params.push(parseInt(routeId, 10));
     }
     if (semester) {
       sql += ' AND semester = ?';
@@ -57,17 +58,17 @@ router.get('/', async (req, res) => {
 
     const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
     const [countResult] = await db.query(countSql, params);
-    const total = countResult[0].total;
+    const total = (countResult[0] && countResult[0].total) || 0;
 
     page = parseInt(page || '1', 10);
     pageSize = parseInt(pageSize || String(total || 10), 10);
-    const pageCount = Math.ceil(total / pageSize);
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
     const offset = (page - 1) * pageSize;
 
-    sql += ` LIMIT ${pageSize} OFFSET ${offset}`;
-    params.push(pageSize, offset);
+    sql += ' LIMIT ? OFFSET ?';
+    const queryParams = [...params, pageSize, offset];
 
-    const [rows] = await db.query(sql, params);
+    const [rows] = await db.query(sql, queryParams);
 
     const items = rows.map((sub) => {
       sub.etag = computeEtag(sub);
@@ -77,6 +78,8 @@ router.get('/', async (req, res) => {
     const basePath = '/api/subscriptions';
     const links = {
       self: `${basePath}?page=${page}&pageSize=${pageSize}`,
+      first: `${basePath}?page=1&pageSize=${pageSize}`,
+      last: `${basePath}?page=${pageCount}&pageSize=${pageSize}`,
     };
     if (page > 1) {
       links.prev = `${basePath}?page=${page - 1}&pageSize=${pageSize}`;
