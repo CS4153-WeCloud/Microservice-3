@@ -10,16 +10,16 @@ Complete guide for setting up Microservice-3 with a MySQL VM on GCP.
 ```
 ┌─────────────────────────────────────────┐
 │  Microservice-3 VM                      │
-│  - Internal IP: 10.128.0.2              │
+│  - Internal IP: 10.128.0.2 (example)    │
+│  - External IP: [Dynamic]               │
 │  - Port: 3003                           │
-│  - No external IP                       │
 └────────────┬────────────────────────────┘
              │
              │ Internal MySQL Connection
              │
 ┌────────────▼────────────────────────────┐
 │  MySQL VM                               │
-│  - Internal IP: 10.128.0.3              │
+│  - Internal IP: 10.128.0.3 (example)    │
 │  - Port: 3306                           │
 │  - No external IP                       │
 │  - Database: ms3_database               │
@@ -27,7 +27,8 @@ Complete guide for setting up Microservice-3 with a MySQL VM on GCP.
 ```
 
 ### Features
-- Internal-only communication (no external IPs)
+- **External client access** to microservice API
+- **Internal MySQL connection** (secure, no internet exposure)
 - Dedicated MySQL database per microservice
 - RESTful API with MySQL persistence
 - Swagger API documentation
@@ -55,7 +56,7 @@ gcloud compute routers nats create nat-config \
 
 ### Step 2: Create MySQL VM
 ```bash
-# Create VM without external IP
+# Create VM without external IP (secure)
 gcloud compute instances create mysql-vm \
     --zone=us-central1-a \
     --machine-type=e2-medium \
@@ -79,7 +80,7 @@ gcloud compute firewall-rules create allow-mysql-internal \
 
 ### Step 4: Install MySQL
 ```bash
-# SSH into MySQL VM
+# SSH into MySQL VM (using IAP tunnel since no external IP)
 gcloud compute ssh mysql-vm \
     --zone=us-central1-a \
     --tunnel-through-iap
@@ -87,19 +88,20 @@ gcloud compute ssh mysql-vm \
 # Install MySQL Server
 sudo apt-get update
 sudo apt-get install -y mysql-server
-
 ```
 
 ### Step 5: Configure MySQL for Remote Access
 ```bash
 # Edit MySQL configuration
-intall vim
-vim /etc/mysql/mysql.conf.d/mysqld.cnf
+sudo vim /etc/mysql/mysql.conf.d/mysqld.cnf
 
 # Find and change this line:
 #   bind-address = 127.0.0.1
 # To:
 #   bind-address = 0.0.0.0
+
+# Or use this command to do it automatically:
+sudo sed -i 's/bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf
 
 # Restart MySQL
 sudo systemctl restart mysql
@@ -131,11 +133,7 @@ EXIT;
 ### Step 7: Create Tables and Sample Data
 ```bash
 # Login with your new user
-mysql -u zh2651 -p
-# Enter password: 123
-
-# Switch to database
-USE ms3_database;
+mysql -u zh2651 -p123 ms3_database
 ```
 
 Run these SQL commands:
@@ -193,16 +191,17 @@ EXIT;
 
 ### Step 8: Get MySQL Internal IP
 ```bash
-# Exit from MySQL VM
-exit
+# While still on MySQL VM
+hostname -I | awk '{print $1}'
+# Output example: 10.128.0.5
 
-# Get MySQL VM internal IP (from your local machine)
+# Or from your local machine
 gcloud compute instances describe mysql-vm \
     --zone=us-central1-a \
     --format='get(networkInterfaces[0].networkIP)'
 
-# Output: 10.128.0.3
 # Save this IP - you'll need it later!
+exit
 ```
 
 **MySQL VM Setup Complete!**
@@ -211,55 +210,75 @@ gcloud compute instances describe mysql-vm \
 
 ## Part 2: Microservice-3 Setup
 
-### Step 1: Create Microservice-3 VM
+### Step 1: Create Microservice-3 VM (with External IP)
 ```bash
-# List your VMs
+# Create VM with external IP for client access
+gcloud compute instances create microservice-3 \
+    --zone=us-central1-c \
+    --machine-type=e2-medium \
+    --network=default \
+    --image-family=ubuntu-2204-lts \
+    --image-project=ubuntu-os-cloud
+
+# List your VMs to verify
 gcloud compute instances list
 
 # Expected output:
-# NAME            ZONE           INTERNAL_IP  EXTERNAL_IP  STATUS
-# mysql-vm        us-central1-a  10.128.0.3                RUNNING
-# microservice-3  us-central1-c  10.128.0.2                RUNNING
+# NAME            ZONE           INTERNAL_IP  EXTERNAL_IP    STATUS
+# mysql-vm        us-central1-a  10.128.0.5                  RUNNING
+# microservice-3  us-central1-c  10.128.0.2   35.184.94.133  RUNNING
 ```
 
-### Step 2: SSH into Microservice-3 VM
+### Step 2: Configure Firewall for External Access
+```bash
+# Allow external access to port 3003
+gcloud compute firewall-rules create allow-microservice-3-external \
+    --network=default \
+    --allow=tcp:3003 \
+    --source-ranges=0.0.0.0/0 \
+    --description="Allow external access to Microservice-3 API"
+```
+
+### Step 3: SSH into Microservice-3 VM
 ```bash
 gcloud compute ssh microservice-3 \
-    --zone=us-central1-c \
-    --tunnel-through-iap
+    --zone=us-central1-c
 ```
 
-### Step 3: Clone the Repository
+### Step 4: Clone the Repository
 ```bash
 # Clone the Microservice-3 repository
 git clone https://github.com/CS4153-WeCloud/Microservice-3.git
+cd Microservice-3
 ```
 
-### Step 4: Install Node.js (if not installed)
+### Step 5: Install Node.js (if not installed)
 ```bash
 # Install Node.js 18
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
+
+# Verify installation
+node --version
+npm --version
 ```
 
-### Step 5: Install Dependencies
+### Step 6: Install Dependencies
 ```bash
 # Install all npm packages
 npm install
-npm list mysql2
 ```
 
-### Step 6: Configure Environment Variables
+### Step 7: Configure Environment Variables
 ```bash
 # Create .env file
-install vim
 vim .env
 ```
 
-Paste this configuration (update with your MySQL credentials):
+Paste this configuration (replace DB_HOST with your MySQL VM internal IP):
 ```env
-# Database Configuration
-DB_HOST=10.128.0.3
+# Database Configuration (use MySQL VM internal IP)
+DB_HOST=10.128.0.5
 DB_USER=zh2651
 DB_PASSWORD=123
 DB_NAME=ms3_database
@@ -270,20 +289,7 @@ PORT=3003
 NODE_ENV=production
 ```
 
-### Step 7: Start the Application
+### Step 8: Start the Application
 ```bash
 npm start
 ```
-
-**Expected output:**
-```
-Database connected successfully
-Host: 10.128.0.3
-Database: ms3_database
-Sample notification data initialized
-Notification Service running on port 3003
-API Documentation available at http://localhost:3003/api-docs
-OpenAPI spec loaded from api/openapi.yaml
-```
-
-**Microservice-3 is now running and connected to MySQL**
