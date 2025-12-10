@@ -89,7 +89,7 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Notification Service running on port ${PORT}`);
   console.log(`API Documentation available at http://localhost:${PORT}/api-docs`);
   console.log(`OpenAPI spec loaded from api/openapi.yaml`);
