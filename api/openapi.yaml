@@ -11,8 +11,8 @@ info:
     email: support@example.com
 
 servers:
-  - url: http://localhost:3003
-    description: Local development
+  - url: /
+    description: Same host/port as this Swagger UI
   - url: http://<your-gcp-service-url>
     description: Deployed service (Cloud Run / VM)
 
