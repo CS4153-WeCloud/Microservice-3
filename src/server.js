@@ -68,7 +68,7 @@ app.get('/api/db-test', async (req, res) => {
     const db = require('./db');
     const [rows] = await db.query('SELECT DATABASE() as current_db, USER() as current_user, NOW() as current_time');
     res.json({
-      status: '✅ Database connection successful',
+      status: 'Database connection successful',
       connection: {
         database: rows[0].current_db,
         user: rows[0].current_user,
@@ -78,7 +78,7 @@ app.get('/api/db-test', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({
-      status: '❌ Database connection failed',
+      status: 'Database connection failed',
       error: error.message,
       config: {
         host: process.env.DB_HOST,
@@ -89,10 +89,60 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const http = require('http');
+
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Notification Service running on port ${PORT}`);
-  console.log(`API Documentation available at http://localhost:${PORT}/api-docs`);
+  console.log(`Server listening on 0.0.0.0:${PORT} (accepting external connections)`);
+  
+  // Try to get external IP dynamically
+  try {
+    const externalIP = await getExternalIP();
+    if (externalIP) {
+      console.log(`External access: http://${externalIP}:${PORT}/api-docs`);
+      console.log(`Health check: http://${externalIP}:${PORT}/health`);
+    }
+  } catch (error) {
+    console.log(`Could not detect external IP: ${error.message}`);
+  }
+  
   console.log(`OpenAPI spec loaded from api/openapi.yaml`);
 });
+
+// Function to get external IP from GCP metadata service
+async function getExternalIP() {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'metadata.google.internal',
+      port: 80,
+      path: '/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip',
+      method: 'GET',
+      headers: {
+        'Metadata-Flavor': 'Google'
+      },
+      timeout: 2000
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          resolve(data.trim());
+        } else {
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+    
+    req.end();
+  });
+}
 
 module.exports = app;
