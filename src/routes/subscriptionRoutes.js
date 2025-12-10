@@ -38,14 +38,13 @@ router.get('/', async (req, res) => {
     let sql = 'SELECT * FROM subscriptions WHERE 1=1';
     const params = [];
 
-    // Filter by query params
     if (userId) {
       sql += ' AND userId = ?';
-      params.push(parseInt(userId, 10));
+      params.push(userId);
     }
     if (routeId) {
       sql += ' AND routeId = ?';
-      params.push(parseInt(routeId, 10));
+      params.push(routeId);
     }
     if (semester) {
       sql += ' AND semester = ?';
@@ -56,21 +55,20 @@ router.get('/', async (req, res) => {
       params.push(status);
     }
 
-    const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) as total');
-    const [countResult] = await db.query(countSql, params);
-    const total = (countResult[0] && countResult[0].total) || 0;
+    const [rows] = await db.query(sql, params);
+
+    const total = rows.length;
 
     page = parseInt(page || '1', 10);
     pageSize = parseInt(pageSize || String(total || 10), 10);
+
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
-    const offset = (page - 1) * pageSize;
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
 
-    sql += ' LIMIT ? OFFSET ?';
-    const queryParams = [...params, pageSize, offset];
+    const pagedRows = rows.slice(start, end);
 
-    const [rows] = await db.query(sql, queryParams);
-
-    const items = rows.map((sub) => {
+    const items = pagedRows.map((sub) => {
       sub.etag = computeEtag(sub);
       return addLinks(sub);
     });
