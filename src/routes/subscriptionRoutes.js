@@ -2,6 +2,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
+const { verifyToken, verifyOwnership } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -30,7 +31,12 @@ function addLinks(subscription) {
   };
 }
 
-// GET /api/subscriptions
+// =============================================
+// PUBLIC ROUTES (No authentication required)
+// =============================================
+
+// GET /api/subscriptions - List all (could be made protected)
+// For now, keeping it public but you can add verifyToken middleware
 router.get('/', async (req, res) => {
   try {
     let { userId, routeId, semester, status, page, pageSize } = req.query;
@@ -56,7 +62,6 @@ router.get('/', async (req, res) => {
     }
 
     const [rows] = await db.query(sql, params);
-
     const total = rows.length;
 
     page = parseInt(page || '1', 10);
@@ -100,14 +105,27 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/subscriptions
-router.post('/', async (req, res) => {
+// =============================================
+// PROTECTED ROUTES (Authentication required)
+// =============================================
+
+// POST /api/subscriptions - Create subscription (PROTECTED)
+// User must be authenticated and can only create subscriptions for themselves
+router.post('/', verifyToken, async (req, res) => {
   try {
     const { userId, routeId, semester, status = 'active' } = req.body;
 
     if (!userId || !routeId || !semester) {
       return res.status(400).json({
         error: 'Missing required fields: userId, routeId, semester',
+      });
+    }
+
+    // Verify user can only create subscription for themselves (unless admin)
+    if (req.user.role !== 'admin' && userId !== req.user.userId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only create subscriptions for yourself'
       });
     }
 
@@ -143,8 +161,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/subscriptions/:id
-router.get('/:id', async (req, res) => {
+// GET /api/subscriptions/:id - Get specific subscription (PROTECTED)
+router.get('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const sql = 'SELECT * FROM subscriptions WHERE id = ?';
@@ -155,6 +173,15 @@ router.get('/:id', async (req, res) => {
     }
 
     const subscription = rows[0];
+
+    // Verify user can only access their own subscription (unless admin)
+    if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only access your own subscriptions'
+      });
+    }
+
     subscription.etag = computeEtag(subscription);
 
     res.set('ETag', subscription.etag).json(addLinks(subscription));
@@ -164,8 +191,8 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/subscriptions/:id
-router.put('/:id', async (req, res) => {
+// PUT /api/subscriptions/:id - Update subscription (PROTECTED)
+router.put('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const ifMatch = req.headers['if-match'];
@@ -178,6 +205,15 @@ router.put('/:id', async (req, res) => {
     }
 
     const subscription = rows[0];
+
+    // Verify ownership
+    if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only update your own subscriptions'
+      });
+    }
+
     const currentEtag = computeEtag(subscription);
 
     if (!ifMatch) {
@@ -226,16 +262,31 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/subscriptions/:id
-router.delete('/:id', async (req, res) => {
+// DELETE /api/subscriptions/:id - Delete subscription (PROTECTED)
+router.delete('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const sql = 'DELETE FROM subscriptions WHERE id = ?';
-    const [result] = await db.query(sql, [id]);
+    
+    // First check if subscription exists and verify ownership
+    const selectSql = 'SELECT * FROM subscriptions WHERE id = ?';
+    const [rows] = await db.query(selectSql, [id]);
 
-    if (result.affectedRows === 0) {
+    if (rows.length === 0) {
       return res.status(404).json({ error: 'Subscription not found' });
     }
+
+    const subscription = rows[0];
+
+    // Verify ownership
+    if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only delete your own subscriptions'
+      });
+    }
+
+    const sql = 'DELETE FROM subscriptions WHERE id = ?';
+    const [result] = await db.query(sql, [id]);
 
     res.status(204).send();
   } catch (error) {

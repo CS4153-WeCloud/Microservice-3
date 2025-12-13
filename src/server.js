@@ -5,10 +5,12 @@ const bodyParser = require('body-parser');
 const swaggerUi = require('swagger-ui-express');
 const YAML = require('yamljs');
 const path = require('path');
+
+// Route imports
 const notificationRoutes = require('./routes/notificationRoutes');
 const emailRoutes = require('./routes/emailRoutes');
 const smsRoutes = require('./routes/smsRoutes');
-
+const authRoutes = require('./routes/authRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 const tripRoutes = require('./routes/tripRoutes');
 
@@ -19,7 +21,12 @@ const PORT = process.env.PORT || 3003;
 const swaggerDocument = YAML.load(path.join(__dirname, '../api/openapi.yaml'));
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://34.170.21.219',
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'If-Match']
+}));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -36,13 +43,13 @@ app.get('/health', (req, res) => {
 });
 
 // Routes
+app.use('/api/auth', authRoutes); // NEW: Auth endpoints (login, verify)
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/sms', smsRoutes);
-
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/trips', tripRoutes);
-app.use('/api', tripRoutes);
+app.use('/api', tripRoutes); // For trip-tasks endpoint
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -50,19 +57,21 @@ app.get('/', (req, res) => {
     message: 'Notification Service API',
     version: '1.0.0',
     documentation: '/api-docs',
-    apiSpec: '/api-docs'
+    apiSpec: '/api-docs',
+    endpoints: {
+      auth: {
+        login: 'POST /api/auth/login',
+        verify: 'POST /api/auth/verify',
+        me: 'GET /api/auth/me (requires token)'
+      },
+      subscriptions: '/api/subscriptions',
+      trips: '/api/trips',
+      notifications: '/api/notifications'
+    }
   });
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: err.message
-  });
-});
-
+// Database test endpoint
 app.get('/api/db-test', async (req, res) => {
   try {
     const db = require('./db');
@@ -89,6 +98,15 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: err.message
+  });
+});
+
 const http = require('http');
 
 app.listen(PORT, '0.0.0.0', async () => {
@@ -101,12 +119,14 @@ app.listen(PORT, '0.0.0.0', async () => {
     if (externalIP) {
       console.log(`External access: http://${externalIP}:${PORT}/api-docs`);
       console.log(`Health check: http://${externalIP}:${PORT}/health`);
+      console.log(`Login endpoint: POST http://${externalIP}:${PORT}/api/auth/login`);
     }
   } catch (error) {
     console.log(`Could not detect external IP: ${error.message}`);
   }
   
   console.log(`OpenAPI spec loaded from api/openapi.yaml`);
+  console.log('🔐 JWT Authentication enabled');
 });
 
 // Function to get external IP from GCP metadata service
