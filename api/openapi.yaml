@@ -4,8 +4,8 @@ info:
   title: Subscription & Trip Service API
   description: >
     Atomic microservice for managing semester subscriptions and daily trips
-    in the Columbia Point2Point shuttle system.
-  version: 1.0.0
+    in the Columbia Point2Point shuttle system. Now with JWT Authentication!
+  version: 2.0.0
   contact:
     name: API Support
     email: support@example.com
@@ -16,15 +16,468 @@ servers:
   - url: http://<your-gcp-service-url>
     description: Deployed service (Cloud Run / VM)
 
+# ============================================================================
+# SECURITY SCHEMES - JWT Authentication
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Enter your JWT token in the format: `your-jwt-token-here` (without "Bearer" prefix)
+
+  schemas:
+    # ========================================================================
+    # Authentication Schemas
+    # ========================================================================
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@columbia.edu
+        password:
+          type: string
+          format: password
+          example: password123
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Login successful
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          type: object
+          properties:
+            id:
+              type: integer
+              example: 1
+            email:
+              type: string
+              example: user@columbia.edu
+            role:
+              type: string
+              example: user
+
+    VerifyTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    VerifyTokenResponse:
+      type: object
+      properties:
+        valid:
+          type: boolean
+          example: true
+        user:
+          type: object
+          properties:
+            userId:
+              type: integer
+              example: 1
+            email:
+              type: string
+              example: user@columbia.edu
+            role:
+              type: string
+              example: user
+
+    # ========================================================================
+    # Subscription Schemas
+    # ========================================================================
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        routeId:
+          type: integer
+        semester:
+          type: string
+          example: 2025F
+        status:
+          type: string
+          example: active
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: ETag of the subscription
+          example: 5d41402abc4b2a76b9719d911017c592
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+              example: /api/subscriptions/1
+            user:
+              type: string
+              example: /api/users/1
+            route:
+              type: string
+              example: /api/routes/10
+            trips:
+              type: string
+              example: /api/trips?subscriptionId=1
+
+    SubscriptionCreate:
+      type: object
+      required: [userId, routeId, semester]
+      properties:
+        userId:
+          type: integer
+        routeId:
+          type: integer
+        semester:
+          type: string
+        status:
+          type: string
+          example: active
+
+    SubscriptionUpdate:
+      type: object
+      properties:
+        userId:
+          type: integer
+        routeId:
+          type: integer
+        semester:
+          type: string
+        status:
+          type: string
+
+    SubscriptionList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscription'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+            prev:
+              type: string
+              nullable: true
+            next:
+              type: string
+              nullable: true
+
+    # ========================================================================
+    # Trip Schemas
+    # ========================================================================
+    Trip:
+      type: object
+      properties:
+        id:
+          type: integer
+        routeId:
+          type: integer
+        subscriptionId:
+          type: integer
+          nullable: true
+        userId:
+          type: integer
+          nullable: true
+        date:
+          type: string
+          format: date
+          example: 2025-09-15
+        type:
+          type: string
+          description: morning or evening
+          example: morning
+        status:
+          type: string
+          example: scheduled
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+              example: /api/trips/1
+            route:
+              type: string
+              example: /api/routes/10
+            subscription:
+              type: string
+              nullable: true
+              example: /api/subscriptions/1
+            user:
+              type: string
+              nullable: true
+              example: /api/users/1
+            cancel:
+              type: string
+              example: /api/trips/1/cancel
+
+    TripCreate:
+      type: object
+      required: [routeId, date, type]
+      properties:
+        routeId:
+          type: integer
+        subscriptionId:
+          type: integer
+        userId:
+          type: integer
+        date:
+          type: string
+          format: date
+        type:
+          type: string
+          description: morning or evening
+        status:
+          type: string
+
+    TripList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Trip'
+        total:
+          type: integer
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+
+    TripTask:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "1"
+        type:
+          type: string
+          example: trip-cancel
+        tripId:
+          type: string
+          example: "1"
+        status:
+          type: string
+          enum: [pending, success, failed]
+          example: pending
+        createdAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        result:
+          type: object
+          nullable: true
+        error:
+          type: string
+          nullable: true
+        _links:
+          type: object
+          properties:
+            self:
+              type: string
+              example: /api/trip-tasks/1
+            trip:
+              type: string
+              example: /api/trips/1
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Error message
+        message:
+          type: string
+          example: Detailed error description
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized - Invalid or missing JWT token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Authentication required
+            message: No authorization header provided
+
+    Forbidden:
+      description: Forbidden - Valid token but insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: Forbidden
+            message: You can only access your own resources
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
 tags:
+  - name: Authentication
+    description: 🔐 Login and JWT token management
   - name: Health
     description: Health check endpoints
   - name: Subscriptions
-    description: Manage semester subscriptions to active routes
+    description: Manage semester subscriptions to active routes (🔒 Protected)
   - name: Trips
-    description: Manage daily trips and async cancellation tasks
+    description: Manage daily trips and async cancellation tasks (🔒 Protected)
 
 paths:
+  # ==========================================================================
+  # AUTHENTICATION ENDPOINTS
+  # ==========================================================================
+  /api/auth/login:
+    post:
+      summary: 🔐 Login to get JWT token
+      description: >
+        Authenticate with email and password to receive a JWT token.
+        Use this token in the "Authorize" button above or in the Authorization header.
+        
+        **Demo Users:**
+        - Email: user@columbia.edu, Password: password123 (Regular User)
+        - Email: admin@columbia.edu, Password: admin123 (Admin)
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful - JWT token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: Invalid credentials
+                message: Email or password is incorrect
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/auth/verify:
+    post:
+      summary: Verify JWT token
+      description: Check if a JWT token is valid and not expired
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyTokenRequest'
+      responses:
+        '200':
+          description: Token verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyTokenResponse'
+        '401':
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/me:
+    get:
+      summary: Get current user info
+      description: Returns information about the currently authenticated user
+      tags: [Authentication]
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      userId:
+                        type: integer
+                      email:
+                        type: string
+                      role:
+                        type: string
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ==========================================================================
+  # HEALTH ENDPOINT
+  # ==========================================================================
   /health:
     get:
       summary: Health check
@@ -48,12 +501,18 @@ paths:
                     type: string
                     format: date-time
 
+  # ==========================================================================
+  # SUBSCRIPTION ENDPOINTS (NOW WITH JWT PROTECTION!)
+  # ==========================================================================
   /api/subscriptions:
     get:
       summary: List subscriptions
       description: >
         Returns a paginated list of subscriptions, filtered by query parameters.
+        🔒 Protected: Requires JWT token
       tags: [Subscriptions]
+      security:
+        - BearerAuth: []
       parameters:
         - in: query
           name: userId
@@ -95,6 +554,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubscriptionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -102,7 +563,10 @@ paths:
       summary: Create a new subscription
       description: >
         Creates a new semester subscription for a given user and route.
+        🔒 Protected: Requires JWT token. Users can only create subscriptions for themselves (unless admin).
       tags: [Subscriptions]
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -124,13 +588,21 @@ paths:
                 $ref: '#/components/schemas/Subscription'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
   /api/subscriptions/{id}:
     get:
       summary: Get a subscription by ID
+      description: >
+        🔒 Protected: Requires JWT token. Users can only view their own subscriptions (unless admin).
       tags: [Subscriptions]
+      security:
+        - BearerAuth: []
       parameters:
         - name: id
           in: path
@@ -149,6 +621,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Subscription'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -159,7 +635,10 @@ paths:
       description: >
         Updates a subscription. Requires an If-Match header containing the
         current ETag of the resource. Returns 412 if the ETag does not match.
+        🔒 Protected: Requires JWT token. Users can only update their own subscriptions (unless admin).
       tags: [Subscriptions]
+      security:
+        - BearerAuth: []
       parameters:
         - name: id
           in: path
@@ -190,6 +669,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Subscription'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '412':
@@ -209,7 +692,11 @@ paths:
 
     delete:
       summary: Delete a subscription
+      description: >
+        🔒 Protected: Requires JWT token. Users can only delete their own subscriptions (unless admin).
       tags: [Subscriptions]
+      security:
+        - BearerAuth: []
       parameters:
         - name: id
           in: path
@@ -219,11 +706,18 @@ paths:
       responses:
         '204':
           description: Subscription deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # ==========================================================================
+  # TRIP ENDPOINTS
+  # ==========================================================================
   /api/trips:
     get:
       summary: List trips
@@ -373,253 +867,3 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
-
-components:
-  schemas:
-    Subscription:
-      type: object
-      properties:
-        id:
-          type: integer
-        userId:
-          type: integer
-        routeId:
-          type: integer
-        semester:
-          type: string
-          example: 2025F
-        status:
-          type: string
-          example: active
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        etag:
-          type: string
-          description: ETag of the subscription
-          example: 5d41402abc4b2a76b9719d911017c592
-        _links:
-          type: object
-          properties:
-            self:
-              type: string
-              example: /api/subscriptions/1
-            user:
-              type: string
-              example: /api/users/1
-            route:
-              type: string
-              example: /api/routes/10
-            trips:
-              type: string
-              example: /api/trips?subscriptionId=1
-
-    SubscriptionCreate:
-      type: object
-      required: [userId, routeId, semester]
-      properties:
-        userId:
-          type: integer
-        routeId:
-          type: integer
-        semester:
-          type: string
-        status:
-          type: string
-          example: active
-
-    SubscriptionUpdate:
-      type: object
-      properties:
-        userId:
-          type: integer
-        routeId:
-          type: integer
-        semester:
-          type: string
-        status:
-          type: string
-
-    SubscriptionList:
-      type: object
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/Subscription'
-        page:
-          type: integer
-        pageSize:
-          type: integer
-        total:
-          type: integer
-        _links:
-          type: object
-          properties:
-            self:
-              type: string
-            prev:
-              type: string
-              nullable: true
-            next:
-              type: string
-              nullable: true
-
-    Trip:
-      type: object
-      properties:
-        id:
-          type: integer
-        routeId:
-          type: integer
-        subscriptionId:
-          type: integer
-          nullable: true
-        userId:
-          type: integer
-          nullable: true
-        date:
-          type: string
-          format: date
-          example: 2025-09-15
-        type:
-          type: string
-          description: morning or evening
-          example: morning
-        status:
-          type: string
-          example: scheduled
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        _links:
-          type: object
-          properties:
-            self:
-              type: string
-              example: /api/trips/1
-            route:
-              type: string
-              example: /api/routes/10
-            subscription:
-              type: string
-              nullable: true
-              example: /api/subscriptions/1
-            user:
-              type: string
-              nullable: true
-              example: /api/users/1
-            cancel:
-              type: string
-              example: /api/trips/1/cancel
-
-    TripCreate:
-      type: object
-      required: [routeId, date, type]
-      properties:
-        routeId:
-          type: integer
-        subscriptionId:
-          type: integer
-        userId:
-          type: integer
-        date:
-          type: string
-          format: date
-        type:
-          type: string
-          description: morning or evening
-        status:
-          type: string
-
-    TripList:
-      type: object
-      properties:
-        data:
-          type: array
-          items:
-            $ref: '#/components/schemas/Trip'
-        total:
-          type: integer
-        _links:
-          type: object
-          properties:
-            self:
-              type: string
-
-    TripTask:
-      type: object
-      properties:
-        id:
-          type: string
-          example: "1"
-        type:
-          type: string
-          example: trip-cancel
-        tripId:
-          type: string
-          example: "1"
-        status:
-          type: string
-          enum: [pending, success, failed]
-          example: pending
-        createdAt:
-          type: string
-          format: date-time
-        finishedAt:
-          type: string
-          format: date-time
-          nullable: true
-        result:
-          type: object
-          nullable: true
-        error:
-          type: string
-          nullable: true
-        _links:
-          type: object
-          properties:
-            self:
-              type: string
-              example: /api/trip-tasks/1
-            trip:
-              type: string
-              example: /api/trips/1
-
-    Error:
-      type: object
-      properties:
-        error:
-          type: string
-          example: Error message
-        message:
-          type: string
-          example: Detailed error description
-
-  responses:
-    BadRequest:
-      description: Bad request
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-
-    InternalServerError:
-      description: Internal server error
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
