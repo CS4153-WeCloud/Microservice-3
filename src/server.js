@@ -22,7 +22,7 @@ const swaggerDocument = YAML.load(path.join(__dirname, '../api/openapi.yaml'));
 
 // Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://34.170.21.219',
+  origin: '*',
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'If-Match']
 }));
