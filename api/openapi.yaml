@@ -4,7 +4,6 @@ info:
   title: Subscription & Trip Service API
   description: >
     Atomic microservice for managing semester subscriptions and daily trips
-    in the Columbia Point2Point shuttle system. Now with JWT Authentication!
   version: 2.0.0
   contact:
     name: API Support
