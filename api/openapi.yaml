@@ -26,7 +26,10 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >
-        Enter your JWT token in the format: `your-jwt-token-here` (without "Bearer" prefix)
+        JWT Authorization header using the Bearer scheme.
+        Enter your token in the text input below.
+        Example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        (Do NOT include "Bearer " prefix - it will be added automatically)
 
   schemas:
     # ========================================================================
@@ -379,7 +382,7 @@ tags:
   - name: Subscriptions
     description: Manage semester subscriptions to active routes (🔒 Protected)
   - name: Trips
-    description: Manage daily trips and async cancellation tasks (🔒 Protected)
+    description: Manage daily trips and async cancellation tasks
 
 paths:
   # ==========================================================================
@@ -390,11 +393,17 @@ paths:
       summary: 🔐 Login to get JWT token
       description: >
         Authenticate with email and password to receive a JWT token.
-        Use this token in the "Authorize" button above or in the Authorization header.
+        
+        
+        **After getting the token:**
+        1. Copy the `token` value from the response
+        2. Click the **Authorize** button (🔓) at the top of this page
+        3. Paste the token and click Authorize
+        
         
         **Demo Users:**
-        - Email: user@columbia.edu, Password: password123 (Regular User)
-        - Email: admin@columbia.edu, Password: admin123 (Admin)
+        - Email: `user@columbia.edu`, Password: `password123` (Regular User)
+        - Email: `admin@columbia.edu`, Password: `admin123` (Admin)
       tags: [Authentication]
       requestBody:
         required: true
@@ -402,6 +411,17 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/LoginRequest'
+            examples:
+              regularUser:
+                summary: Regular User
+                value:
+                  email: user@columbia.edu
+                  password: password123
+              adminUser:
+                summary: Admin User
+                value:
+                  email: admin@columbia.edu
+                  password: admin123
       responses:
         '200':
           description: Login successful - JWT token returned
@@ -448,8 +468,12 @@ paths:
 
   /api/auth/me:
     get:
-      summary: Get current user info
-      description: Returns information about the currently authenticated user
+      summary: 🔒 Get current user info
+      description: >
+        Returns information about the currently authenticated user.
+        
+        
+        **⚠️ Requires Authentication:** You must first authorize using the 🔓 button above.
       tags: [Authentication]
       security:
         - BearerAuth: []
@@ -472,6 +496,12 @@ paths:
                         type: string
                   message:
                     type: string
+              example:
+                user:
+                  userId: 1
+                  email: user@columbia.edu
+                  role: user
+                message: You are authenticated!
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -502,17 +532,14 @@ paths:
                     format: date-time
 
   # ==========================================================================
-  # SUBSCRIPTION ENDPOINTS (NOW WITH JWT PROTECTION!)
+  # SUBSCRIPTION ENDPOINTS
   # ==========================================================================
   /api/subscriptions:
     get:
       summary: List subscriptions
       description: >
         Returns a paginated list of subscriptions, filtered by query parameters.
-        🔒 Protected: Requires JWT token
       tags: [Subscriptions]
-      security:
-        - BearerAuth: []
       parameters:
         - in: query
           name: userId
@@ -554,16 +581,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubscriptionList'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
     post:
-      summary: Create a new subscription
+      summary: 🔒 Create a new subscription
       description: >
         Creates a new semester subscription for a given user and route.
-        🔒 Protected: Requires JWT token. Users can only create subscriptions for themselves (unless admin).
+        
+        
+        **⚠️ Requires Authentication:** Users can only create subscriptions for themselves (unless admin).
       tags: [Subscriptions]
       security:
         - BearerAuth: []
@@ -573,6 +600,11 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SubscriptionCreate'
+            example:
+              userId: 1
+              routeId: 101
+              semester: "2025F"
+              status: active
       responses:
         '201':
           description: Subscription created
@@ -597,9 +629,9 @@ paths:
 
   /api/subscriptions/{id}:
     get:
-      summary: Get a subscription by ID
+      summary: 🔒 Get a subscription by ID
       description: >
-        🔒 Protected: Requires JWT token. Users can only view their own subscriptions (unless admin).
+        **⚠️ Requires Authentication:** Users can only view their own subscriptions (unless admin).
       tags: [Subscriptions]
       security:
         - BearerAuth: []
@@ -631,11 +663,13 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
     put:
-      summary: Update a subscription (ETag + If-Match)
+      summary: 🔒 Update a subscription (ETag + If-Match)
       description: >
         Updates a subscription. Requires an If-Match header containing the
         current ETag of the resource. Returns 412 if the ETag does not match.
-        🔒 Protected: Requires JWT token. Users can only update their own subscriptions (unless admin).
+        
+        
+        **⚠️ Requires Authentication:** Users can only update their own subscriptions (unless admin).
       tags: [Subscriptions]
       security:
         - BearerAuth: []
@@ -691,9 +725,9 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
     delete:
-      summary: Delete a subscription
+      summary: 🔒 Delete a subscription
       description: >
-        🔒 Protected: Requires JWT token. Users can only delete their own subscriptions (unless admin).
+        **⚠️ Requires Authentication:** Users can only delete their own subscriptions (unless admin).
       tags: [Subscriptions]
       security:
         - BearerAuth: []
