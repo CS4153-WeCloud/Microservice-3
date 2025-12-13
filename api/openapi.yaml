@@ -285,7 +285,7 @@ components:
     TripTask:
       type: object
       properties:
-        id:
+        taskId:
           type: string
           example: "1"
         type:
