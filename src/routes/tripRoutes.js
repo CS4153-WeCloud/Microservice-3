@@ -1,6 +1,7 @@
 // src/routes/tripRoutes.js
 const express = require('express');
 const db = require('../db');
+const EventPublisher = require('../services/eventPublisher');
 
 const router = express.Router();
 
@@ -112,6 +113,8 @@ router.post('/', async (req, res) => {
       updatedAt: now.toISOString(),
     };
 
+    await EventPublisher.tripCreated(trip);
+
     const resourcePath = `/api/trips/${trip.id}`;
 
     res.status(201).location(resourcePath).json(addTripLinks(trip));
@@ -162,6 +165,9 @@ router.post('/:id/cancel', async (req, res) => {
 
     asyncTasks[task.id] = task;
 
+    await EventPublisher.tripCancellationRequested(id, task.id);
+
+    // Async cancellation process
     setTimeout(async () => {
       try {
         const updateSql = 'UPDATE trips SET status = ?, updatedAt = ? WHERE id = ?';
@@ -174,9 +180,14 @@ router.post('/:id/cancel', async (req, res) => {
           tripId: id,
           status: 'cancelled',
         };
+
+        await EventPublisher.tripCancelled(id, task.id);
+
       } catch (error) {
         asyncTasks[task.id].status = 'failed';
         asyncTasks[task.id].error = error.message;
+
+        await EventPublisher.tripCancellationFailed(id, task.id, error.message);
       }
     }, 3000);
 

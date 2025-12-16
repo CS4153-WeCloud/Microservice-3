@@ -3,6 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const { verifyToken, verifyOwnership } = require('../middleware/auth');
+const EventPublisher = require('../services/eventPublisher');
 
 const router = express.Router();
 
@@ -36,7 +37,6 @@ function addLinks(subscription) {
 // =============================================
 
 // GET /api/subscriptions - List all (could be made protected)
-// For now, keeping it public but you can add verifyToken middleware
 router.get('/', async (req, res) => {
   try {
     let { userId, routeId, semester, status, page, pageSize } = req.query;
@@ -110,7 +110,6 @@ router.get('/', async (req, res) => {
 // =============================================
 
 // POST /api/subscriptions - Create subscription (PROTECTED)
-// User must be authenticated and can only create subscriptions for themselves
 router.post('/', verifyToken, async (req, res) => {
   try {
     const { userId, routeId, semester, status = 'active' } = req.body;
@@ -148,6 +147,8 @@ router.post('/', verifyToken, async (req, res) => {
     };
 
     subscription.etag = computeEtag(subscription);
+
+    await EventPublisher.subscriptionCreated(subscription);
 
     const resourcePath = `/api/subscriptions/${subscription.id}`;
 
@@ -205,6 +206,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     }
 
     const subscription = rows[0];
+    const originalSubscription = { ...subscription }; // Save original for comparison
 
     // Verify ownership
     if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
@@ -230,10 +232,24 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     const { userId, routeId, semester, status } = req.body;
 
-    if (userId !== undefined) subscription.userId = userId;
-    if (routeId !== undefined) subscription.routeId = routeId;
-    if (semester !== undefined) subscription.semester = semester;
-    if (status !== undefined) subscription.status = status;
+    // Track what changed
+    const changes = {};
+    if (userId !== undefined && userId !== subscription.userId) {
+      changes.userId = { from: subscription.userId, to: userId };
+      subscription.userId = userId;
+    }
+    if (routeId !== undefined && routeId !== subscription.routeId) {
+      changes.routeId = { from: subscription.routeId, to: routeId };
+      subscription.routeId = routeId;
+    }
+    if (semester !== undefined && semester !== subscription.semester) {
+      changes.semester = { from: subscription.semester, to: semester };
+      subscription.semester = semester;
+    }
+    if (status !== undefined && status !== subscription.status) {
+      changes.status = { from: subscription.status, to: status };
+      subscription.status = status;
+    }
 
     subscription.updatedAt = new Date();
 
@@ -254,6 +270,8 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     subscription.updatedAt = subscription.updatedAt.toISOString();
     subscription.etag = computeEtag(subscription);
+
+    await EventPublisher.subscriptionUpdated(subscription, changes);
 
     res.set('ETag', subscription.etag).json(addLinks(subscription));
   } catch (error) {
@@ -286,7 +304,9 @@ router.delete('/:id', verifyToken, async (req, res) => {
     }
 
     const sql = 'DELETE FROM subscriptions WHERE id = ?';
-    const [result] = await db.query(sql, [id]);
+    await db.query(sql, [id]);
+
+    await EventPublisher.subscriptionDeleted(id, subscription.userId);
 
     res.status(204).send();
   } catch (error) {
