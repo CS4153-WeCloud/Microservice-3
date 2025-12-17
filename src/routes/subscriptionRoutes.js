@@ -280,6 +280,43 @@ router.put('/:id', verifyToken, async (req, res) => {
   }
 });
 
+// POST /api/subscriptions/:id/cancel - Cancel subscription (PROTECTED)
+router.post('/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get subscription
+    const selectSql = 'SELECT * FROM subscriptions WHERE id = ?';
+    const [rows] = await db.query(selectSql, [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    const subscription = rows[0];
+    
+    // Update status to cancelled
+    const updateSql = 'UPDATE subscriptions SET status = ?, updatedAt = ? WHERE id = ?';
+    const now = new Date();
+    await db.query(updateSql, ['cancelled', now, id]);
+
+    subscription.status = 'cancelled';
+    subscription.updatedAt = now.toISOString();
+    subscription.etag = computeEtag(subscription);
+
+    await EventPublisher.subscriptionUpdated(subscription, { status: { from: rows[0].status, to: 'cancelled' } });
+
+    res.json({
+      success: true,
+      message: 'Subscription cancelled successfully',
+      subscription: addLinks(subscription)
+    });
+  } catch (error) {
+    console.error('Database error:', error);
+    res.status(500).json({ error: 'Database error: ' + error.message });
+  }
+});
+
 // DELETE /api/subscriptions/:id - Delete subscription (PROTECTED)
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
