@@ -2,8 +2,15 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
-const { verifyToken, verifyOwnership } = require('../middleware/auth');
-const EventPublisher = require('../services/eventPublisher');
+const { verifyToken } = require('../middleware/auth');
+
+let EventPublisher;
+try {
+  EventPublisher = require('../services/eventPublisher');
+} catch (e) {
+  EventPublisher = null;
+  console.log('EventPublisher not available - events will not be published');
+}
 
 const router = express.Router();
 
@@ -33,10 +40,8 @@ function addLinks(subscription) {
 }
 
 // =============================================
-// PUBLIC ROUTES (No authentication required)
+// GET /api/subscriptions - List all subscriptions
 // =============================================
-
-// GET /api/subscriptions - List all (could be made protected)
 router.get('/', async (req, res) => {
   try {
     let { userId, routeId, semester, status, page, pageSize } = req.query;
@@ -106,10 +111,8 @@ router.get('/', async (req, res) => {
 });
 
 // =============================================
-// PROTECTED ROUTES (Authentication required)
+// POST /api/subscriptions - Create subscription
 // =============================================
-
-// POST /api/subscriptions - Create subscription (PROTECTED)
 router.post('/', verifyToken, async (req, res) => {
   try {
     const { userId, routeId, semester, status = 'active' } = req.body;
@@ -120,13 +123,7 @@ router.post('/', verifyToken, async (req, res) => {
       });
     }
 
-    // Verify user can only create subscription for themselves (unless admin)
-    if (req.user.role !== 'admin' && userId !== req.user.userId) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'You can only create subscriptions for yourself'
-      });
-    }
+    // NO OWNERSHIP CHECK - anyone can create for any userId
 
     const now = new Date();
     
@@ -187,7 +184,10 @@ router.post('/', verifyToken, async (req, res) => {
 
     subscription.etag = computeEtag(subscription);
 
-    await EventPublisher.subscriptionCreated(subscription);
+    // Emit event (if EventPublisher is available)
+    if (EventPublisher) {
+      await EventPublisher.subscriptionCreated(subscription);
+    }
 
     const resourcePath = `/api/subscriptions/${subscription.id}`;
 
@@ -204,7 +204,9 @@ router.post('/', verifyToken, async (req, res) => {
   }
 });
 
-// GET /api/subscriptions/:id - Get specific subscription (PROTECTED)
+// =============================================
+// GET /api/subscriptions/:id - Get subscription by ID
+// =============================================
 router.get('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -217,13 +219,7 @@ router.get('/:id', verifyToken, async (req, res) => {
 
     const subscription = rows[0];
 
-    // Verify user can only access their own subscription (unless admin)
-    if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'You can only access your own subscriptions'
-      });
-    }
+    // NO OWNERSHIP CHECK - anyone can view any subscription
 
     subscription.etag = computeEtag(subscription);
 
@@ -234,7 +230,9 @@ router.get('/:id', verifyToken, async (req, res) => {
   }
 });
 
-// PUT /api/subscriptions/:id - Update subscription (PROTECTED)
+// =============================================
+// PUT /api/subscriptions/:id - Update subscription
+// =============================================
 router.put('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -248,15 +246,6 @@ router.put('/:id', verifyToken, async (req, res) => {
     }
 
     const subscription = rows[0];
-    const originalSubscription = { ...subscription }; // Save original for comparison
-
-    // Verify ownership
-    if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'You can only update your own subscriptions'
-      });
-    }
 
     const currentEtag = computeEtag(subscription);
 
@@ -274,7 +263,6 @@ router.put('/:id', verifyToken, async (req, res) => {
 
     const { userId, routeId, semester, status } = req.body;
 
-    // Track what changed
     const changes = {};
     if (userId !== undefined && userId !== subscription.userId) {
       changes.userId = { from: subscription.userId, to: userId };
@@ -313,7 +301,9 @@ router.put('/:id', verifyToken, async (req, res) => {
     subscription.updatedAt = subscription.updatedAt.toISOString();
     subscription.etag = computeEtag(subscription);
 
-    await EventPublisher.subscriptionUpdated(subscription, changes);
+    if (EventPublisher) {
+      await EventPublisher.subscriptionUpdated(subscription, changes);
+    }
 
     res.set('ETag', subscription.etag).json(addLinks(subscription));
   } catch (error) {
@@ -322,7 +312,9 @@ router.put('/:id', verifyToken, async (req, res) => {
   }
 });
 
-// POST /api/subscriptions/:id/cancel - Cancel subscription (PROTECTED)
+// =============================================
+// POST /api/subscriptions/:id/cancel - Cancel subscription
+// =============================================
 router.post('/:id/cancel', async (req, res) => {
   try {
     const { id } = req.params;
@@ -346,7 +338,9 @@ router.post('/:id/cancel', async (req, res) => {
     subscription.updatedAt = now.toISOString();
     subscription.etag = computeEtag(subscription);
 
-    await EventPublisher.subscriptionUpdated(subscription, { status: { from: rows[0].status, to: 'cancelled' } });
+    if (EventPublisher) {
+      await EventPublisher.subscriptionUpdated(subscription, { status: { from: rows[0].status, to: 'cancelled' } });
+    }
 
     res.json({
       success: true,
@@ -359,12 +353,13 @@ router.post('/:id/cancel', async (req, res) => {
   }
 });
 
-// DELETE /api/subscriptions/:id - Delete subscription (PROTECTED)
+// =============================================
+// DELETE /api/subscriptions/:id - Delete subscription
+// =============================================
 router.delete('/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     
-    // First check if subscription exists and verify ownership
     const selectSql = 'SELECT * FROM subscriptions WHERE id = ?';
     const [rows] = await db.query(selectSql, [id]);
 
@@ -373,19 +368,12 @@ router.delete('/:id', verifyToken, async (req, res) => {
     }
 
     const subscription = rows[0];
-
-    // Verify ownership
-    if (req.user.role !== 'admin' && subscription.userId !== req.user.userId) {
-      return res.status(403).json({
-        error: 'Forbidden',
-        message: 'You can only delete your own subscriptions'
-      });
-    }
-
     const sql = 'DELETE FROM subscriptions WHERE id = ?';
     await db.query(sql, [id]);
 
-    await EventPublisher.subscriptionDeleted(id, subscription.userId);
+    if (EventPublisher) {
+      await EventPublisher.subscriptionDeleted(id, subscription.userId);
+    }
 
     res.status(204).send();
   } catch (error) {

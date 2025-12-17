@@ -293,3 +293,85 @@ NODE_ENV=production
 ```bash
 npm start
 ```
+
+## Part 3: Google Cloud Function Setup
+
+### Step 1: Enable required APIs (on local machine)
+```bash
+PROJECT=cloud-project-480801
+
+gcloud services enable pubsub.googleapis.com \
+  cloudfunctions.googleapis.com \
+  eventarc.googleapis.com \
+  run.googleapis.com \
+  artifactregistry.googleapis.com \
+  --project=$PROJECT
+```
+
+### Step 2: Create Pub/Sub topics (on local machine)
+```bash
+gcloud pubsub topics create subscription-events --project=$PROJECT
+gcloud pubsub topics create trip-events --project=$PROJECT   # optional
+```
+
+### Step 3: Give Microservice-3 VM permission to publish
+```bash
+VM_SA=73004011110-compute@developer.gserviceaccount.com
+
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member="serviceAccount:$VM_SA" \
+  --role="roles/pubsub.publisher"
+```
+
+### Step 4: Write the Cloud Function
+```js
+// Create a new folder (separate from microservice repo) e.g. ms3-subscription-handler/
+// package.json
+{
+  "name": "ms3-subscription-handler",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {}
+}
+
+// index.js
+exports.handleSubscriptionEvent = async (cloudevent) => {
+  const msg = cloudevent.data?.message;
+  const b64 = msg?.data || "";
+  const raw = Buffer.from(b64, "base64").toString("utf8");
+
+  let payload;
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    console.log("Non-JSON message:", raw);
+    return;
+  }
+
+  console.log("✅ Pub/Sub event received");
+  console.log("messageId:", msg?.messageId);
+  console.log("payload:", JSON.stringify(payload, null, 2));
+
+  // Example: branch on your eventType
+  if (payload.eventType === "subscription.created") {
+    console.log("🎉 New subscription created:", payload.data);
+  }
+};
+```
+
+### Step 5: Deploy the Cloud Function (Gen2)
+```bash
+PROJECT=cloud-project-480801
+REGION=us-central1
+FUNCTION_NAME=ms3-subscription-handler
+TOPIC=subscription-events
+
+gcloud functions deploy $FUNCTION_NAME \
+  --gen2 \
+  --runtime=nodejs20 \
+  --region=$REGION \
+  --source=. \
+  --entry-point=handleSubscriptionEvent \
+  --trigger-topic=$TOPIC \
+  --project=$PROJECT
+```

@@ -25,10 +25,9 @@ router.post('/login', async (req, res) => {
     // DEMO: Hardcoded users for testing
     // In production, query your database and verify hashed password
     const demoUsers = [
-      { id: 1, email: 'user@columbia.edu', password: 'password123', role: 'user' },
+      { id: 10, email: 'user@columbia.edu', password: 'password123', role: 'user' },
       { id: 2, email: 'admin@columbia.edu', password: 'admin123', role: 'admin' },
     ];
-
     const user = demoUsers.find(u => u.email === email && u.password === password);
 
     if (!user) {
