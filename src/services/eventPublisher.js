@@ -8,12 +8,21 @@ let pubsub;
 let pubsubEnabled = false;
 
 try {
-  pubsub = new PubSub();
+  const projectId = process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || 'wecloud-475402';
+  const config = { projectId };
+  
+  // If credentials file is specified, use it
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    config.keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  }
+  
+  pubsub = new PubSub(config);
   pubsubEnabled = true;
-  console.log('✅ Pub/Sub client initialized');
+  console.log(`✅ Pub/Sub client initialized for project: ${projectId}`);
 } catch (error) {
   console.warn('⚠️ Pub/Sub not configured - events will be logged only');
   console.warn('   To enable: npm install @google-cloud/pubsub');
+  console.warn('   Error:', error.message);
 }
 
 // Topic names - these should match what you create in GCP
