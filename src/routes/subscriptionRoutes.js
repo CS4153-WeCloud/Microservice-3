@@ -129,22 +129,61 @@ router.post('/', verifyToken, async (req, res) => {
     }
 
     const now = new Date();
-    const sql = `
-      INSERT INTO subscriptions (userId, routeId, semester, status, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `;
-
-    const [result] = await db.query(sql, [userId, routeId, semester, status, now, now]);
-
-    const subscription = {
-      id: result.insertId,
-      userId,
-      routeId,
-      semester,
-      status,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
+    
+    // Check if subscription already exists (might be cancelled)
+    const [existing] = await db.query(
+      'SELECT * FROM subscriptions WHERE userId = ? AND routeId = ? AND semester = ?',
+      [userId, routeId, semester]
+    );
+    
+    let subscription;
+    let isReactivated = false;
+    
+    if (existing.length > 0) {
+      // Subscription exists - check if we can reactivate it
+      const existingSub = existing[0];
+      if (existingSub.status === 'cancelled') {
+        // Reactivate the cancelled subscription
+        await db.query(
+          'UPDATE subscriptions SET status = ?, updatedAt = ? WHERE id = ?',
+          ['active', now, existingSub.id]
+        );
+        subscription = {
+          id: existingSub.id,
+          userId: existingSub.userId,
+          routeId: existingSub.routeId,
+          semester: existingSub.semester,
+          status: 'active',
+          createdAt: existingSub.createdAt,
+          updatedAt: now.toISOString(),
+        };
+        isReactivated = true;
+      } else {
+        // Already has active subscription
+        return res.status(409).json({
+          error: 'Subscription already exists',
+          message: 'You already have an active subscription for this route and semester',
+          existingSubscription: addLinks(existingSub)
+        });
+      }
+    } else {
+      // Create new subscription
+      const sql = `
+        INSERT INTO subscriptions (userId, routeId, semester, status, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      const [result] = await db.query(sql, [userId, routeId, semester, status, now, now]);
+      
+      subscription = {
+        id: result.insertId,
+        userId,
+        routeId,
+        semester,
+        status,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      };
+    }
 
     subscription.etag = computeEtag(subscription);
 
@@ -153,9 +192,12 @@ router.post('/', verifyToken, async (req, res) => {
     const resourcePath = `/api/subscriptions/${subscription.id}`;
 
     res
-      .status(201)
+      .status(isReactivated ? 200 : 201)
       .location(resourcePath)
-      .json(addLinks(subscription));
+      .json({
+        ...addLinks(subscription),
+        message: isReactivated ? 'Subscription reactivated' : 'Subscription created'
+      });
   } catch (error) {
     console.error('Database error:', error);
     res.status(500).json({ error: 'Database error: ' + error.message });
